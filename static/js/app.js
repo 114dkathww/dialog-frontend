@@ -250,68 +250,69 @@ async function requestTokenReissue() {
 }
 
 // =====================================
-// axios 요청 인터셉터 (큐 로직 적용)
+// axios 요청 인터셉터 (수정됨)
 // =====================================
 apiClient.interceptors.response.use(
-    response => response,
-    async error => {
-        const originalRequest = error.config;
+  response => response,
+  async error => {
+    const originalRequest = error.config;
     
-        // 401 에러가 아니거나, 재시도 요청이거나, 요청 정보가 없으면 무시
-        if (error.response?.status !== 401 || originalRequest._retry) {
-            return Promise.reject(error);
-        }
-
-        // 1. 재발급 시도 중인 경우: 현재 요청을 큐에 추가하고 대기
-        if (isTokenRefreshing) {
-            return new Promise(function(resolve, reject) {
-                failedQueue.push({ resolve, reject, originalRequest });
-            })
-            .then(() => {
-            // 큐에 있던 요청을 재시도
-                return apiClient(originalRequest);
-            })
-            .catch(err => {
-                return Promise.reject(err);
-            });
-        }
-
-        // 2. 재발급 시도 시작 (isTokenRefreshing이 false인 경우)
-        isTokenRefreshing = true;
-        originalRequest._retry = true;
-
-        try {
-            // 1) JWT 재발급 시도
-            const jwtReissueSuccess = await requestTokenReissue();
-            if (jwtReissueSuccess) {
-                console.log("JWT Access Token 재발급 성공, 큐 처리 및 요청 재시도");
-                processQueue(null, null); // 큐에 대기 중인 요청 처리
-                await loadCurrentUser();
-                return apiClient(originalRequest);
-            }
-
-            // 2) JWT 실패 시, 구글 토큰 재발급 시도
-            const googleReissueSuccess = await fetchGoogleAccessToken();
-            if (googleReissueSuccess) {
-                console.log("Google Access Token 재발급 성공, 큐 처리 및 요청 재시도");
-                processQueue(null, null); // 큐에 대기 중인 요청 처리
-                await loadCurrentUser();
-                return apiClient(originalRequest);
-            }
-
-            // 3) 모든 재발급 시도 실패
-            console.error("모든 토큰 재발급 실패");
-            throw new Error('All token reissues failed'); // 재발급 최종 실패
-        } catch (err) {
-            // 최종 실패 시 로그인 페이지로 리다이렉트
-            console.error("모든 토큰 재발급 실패! 로그인 페이지로 이동합니다. ");
-            processQueue(err, null); // 큐에 대기 중인 요청에 실패 전달
-            logout();
-            return Promise.reject(err);
-        } finally {
-            isTokenRefreshing = false; // 재발급 플래그 해제
-        }
+    // 401 에러가 아니거나, 재시도 요청이거나, 요청 정보가 없으면 무시
+    if (error.response?.status !== 401 || originalRequest._retry) {
+      return Promise.reject(error);
     }
+
+    // [중요] Google 재연동 오류(invalid_grant)는 인터셉터가 처리하지 않고
+    //          원래 요청(calendar.js)의 catch 블록으로 즉시 보냅니다.
+    if (error.response.data && error.response.data.errorCode === "GOOGLE_REAUTH_REQUIRED") {
+        console.warn("인터셉터: Google 재연동 필요. 'calendar.js'로 처리를 위임합니다.");
+        return Promise.reject(error);
+    }
+
+    // 1. 재발급 시도 중인 경우: 현재 요청을 큐에 추가하고 대기
+    if (isTokenRefreshing) {
+      return new Promise(function(resolve, reject) {
+        failedQueue.push({ resolve, reject, originalRequest });
+      })
+      .then(() => {
+        // 큐에 있던 요청을 재시도
+        return apiClient(originalRequest);
+      })
+      .catch(err => {
+        return Promise.reject(err);
+      });
+    }
+
+    // 2. 재발급 시도 시작 (isTokenRefreshing이 false인 경우)
+    isTokenRefreshing = true;
+    originalRequest._retry = true;
+
+    try {
+      // [수정] 오직 JWT 재발급만 시도
+      const jwtReissueSuccess = await requestTokenReissue();
+      
+      if (jwtReissueSuccess) {
+        console.log("JWT Access Token 재발급 성공, 큐 처리 및 요청 재시도");
+        processQueue(null, null); // 큐에 대기 중인 요청 처리
+        await loadCurrentUser(); // (선택) 헤더 UI 업데이트
+        return apiClient(originalRequest);
+      }
+
+      // [수정] Google 토큰 재발급 로직 (fetchGoogleAccessToken) 삭제
+      // [수정] JWT 재발급 실패 시 바로 예외 발생
+      console.error("JWT 토큰 재발급 실패");
+      throw new Error('JWT reissue failed'); 
+
+    } catch (err) {
+      // 최종 실패 시 로그인 페이지로 리다이렉트
+      console.error("JWT 재발급 최종 실패! 로그인 페이지로 이동합니다. ");
+      processQueue(err, null); // 큐에 대기 중인 요청에 실패 전달
+      logout();
+      return Promise.reject(err);
+    } finally {
+      isTokenRefreshing = false; // 재발급 플래그 해제
+    }
+  }
 );
 
 // =====================================
