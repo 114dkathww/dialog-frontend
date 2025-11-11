@@ -94,12 +94,19 @@
                     <div class="main-area">
                         <div class="area-header">
                             <h2 class="area-title">실시간 변환 로그</h2>
+                            <button class="btn btn-secondary btn-sm" onclick="openAddTranscriptModal()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                발화 추가
+                            </button>
                         </div>
 
                         <div class="area-meta">
-                            <span id="transcriptCount">이 20개 발화</span>
+                            <span id="transcriptCount">이 15개 발화</span>
                             <span>•</span>
-                            <span id="mappingStatus">0/3 매핑 완료</span>
+                            <span id="mappingStatus">0/5 매핑 완료</span>
                             <span>•</span>
                             <span class="chart-link" onclick="openParticipationChart()">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -124,8 +131,14 @@
                         <div class="sidebar-section">
                             <div class="area-header">
                                 <h3 class="sidebar-title">AI 요약</h3>
-                                <button class="edit-btn" onclick="toggleSummaryEdit()">
+                                <button class="edit-btn" id="toggleEditBtn" onclick="toggleSummaryEdit()" disabled>
                                     <span id="editBtnText">편집</span>
+                                </button>
+                                <button class="btn btn-primary btn-sm" id="generateSummaryBtn" onclick="startFullSummaryGeneration()" style="margin-left: 8px;" disabled>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                    </svg>
+                                    AI 요약 생성
                                 </button>
                             </div>
 
@@ -147,6 +160,15 @@
                                 <textarea class="summary-editor hidden" id="summaryEditor" placeholder="전체 요약을 입력하세요"></textarea>
                             </div>
 
+                            <div class="summary-block" id="importanceBlock">
+                                <div class="summary-label">⭐ 회의 중요도</div>
+                                <div class="summary-text">
+                                    <span id="importanceLevel" style="font-weight: 600; color: #8E44AD;"></span>
+                                    <div id="importanceReason" style="margin-top: 4px; color: #6b7280;"></div>
+                                </div>
+                                <textarea class="summary-editor hidden" id="importanceEditor"></textarea>
+                            </div>
+
                             <div class="edit-actions hidden" id="editActions">
                                 <button class="btn btn-secondary" onclick="cancelSummaryEdit()">취소</button>
                                 <button class="btn btn-primary" onclick="saveSummaryEdit()">저장</button>
@@ -155,7 +177,16 @@
 
                         <!-- 하이라이트 키워드 -->
                         <div class="sidebar-section">
-                            <h3 class="sidebar-title">하이라이트 키워드</h3>
+                            <div class="area-header" style="margin-bottom: 16px;">
+                                <h3 class="sidebar-title" style="margin-bottom: 0;">하이라이트 키워드</h3>
+                                <button class="btn btn-secondary btn-sm" onclick="openKeywordModal()" style="margin-left: auto;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="12" y1="5" x2="12" y2="19"/>
+                                        <line x1="5" y1="12" x2="19" y2="12"/>
+                                    </svg>
+                                    키워드 관리
+                                </button>
+                            </div>
                             <div class="keywords" id="keywords">
                                 <div class="keyword" onclick="toggleKeyword(this)">예산</div>
                                 <div class="keyword" onclick="toggleKeyword(this)">일정</div>
@@ -166,9 +197,21 @@
 
                         <!-- 액션 아이템 -->
                         <div class="sidebar-section">
-                            <h3 class="sidebar-title">액션 아이템</h3>
+                            <div class="action-header">
+                                <h3 class="sidebar-title">액션 아이템</h3>
+                                <div class="action-controls">
+                                    <button id="extractMyActionsBtn" class="btn btn-sm btn-secondary" onclick="extractMyActions()" disabled>
+                                        내 할 일 추출
+                                    </button>
+                                </div>
+                            </div>
+
+                            <p class="action-info" id="actionInfoText">
+                                💡 발화자 매핑 후 내 할 일을 자동 추출할 수 있습니다
+                            </p>
+
                             <div id="actionList">
-                                <!-- 액션 아이템이 동적으로 추가됩니다 -->
+                            <!-- 액션 아이템이 동적으로 추가됩니다 -->
                             </div>
                             <button class="add-action-btn" onclick="openActionModal()">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -180,78 +223,162 @@
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- 발화자 매핑 모달 -->
-                <div id="speakerModal" class="modal hidden">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 class="modal-title">발화자 매핑</h3>
-                            <p class="modal-desc">이 발화자를 어떤 참석자와 연결하시겠습니까?</p>
-                        </div>
-                        <div class="modal-body">
-                            <div id="participantList">
-                                <!-- 참석자 목록이 동적으로 추가됩니다 -->
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button class="btn btn-secondary" onclick="closeSpeakerModal()">취소</button>
-                            <button class="btn btn-primary" onclick="saveSpeakerMapping()">확인</button>
-                        </div>
+            <!-- 제목 모달 -->
+            <div id="titleModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">회의 제목 수정</h3>
+                    <p class="modal-desc">새로운 회의 제목을 입력하세요.</p>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label">회의 제목</label>
+                        <input type="text" id="newTitleInput" class="form-input">
                     </div>
                 </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeTitleModal()">취소</button>
+                    <button class="btn btn-primary" onclick="saveNewTitle()">저장</button>
+                </div>
+            </div>
+            </div>
 
-                <!-- 발화 점유율 차트 모달 -->
-                <div id="chartModal" class="modal hidden">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 class="modal-title">발화 점유율</h3>
-                            <p class="modal-desc">참석자별 발화 비율을 확인하세요</p>
-                        </div>
-                        <div class="modal-body">
-                            <div id="chartContainer">
-                                <!-- 차트가 동적으로 추가됩니다 -->
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button class="btn btn-primary" onclick="closeChartModal()">확인</button>
+            <!-- 발화자 매핑 모달 -->
+            <div id="speakerModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">발화자 매핑</h3>
+                        <p class="modal-desc">이 발화자를 어떤 참석자와 연결하시겠습니까?</p>
+                    </div>
+                    <div class="modal-body">
+                        <div id="participantList">
+                        <!-- 참석자 목록이 동적으로 추가됩니다 -->
                         </div>
                     </div>
-                </div>
-
-                <!-- 액션 아이템 추가 모달 -->
-                <div id="actionModal" class="modal hidden">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h3 class="modal-title">액션 아이템 추가</h3>
-                            <p class="modal-desc">할 일의 상세 정보를 입력해주세요</p>
-                        </div>
-                        <div class="modal-body">
-                            <div class="form-group">
-                                <label class="form-label">액션 아이템 <span style="color: #ef4444;">*</span></label>
-                                <textarea id="actionTitle" class="form-textarea" placeholder="예: 예산안 작성 및 검토"></textarea>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label class="form-label">담당자</label>
-                                    <select id="actionAssignee" class="form-select">
-                                        <option value="">선택하세요</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">기한</label>
-                                    <input type="date" id="actionDeadline" class="form-input">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button class="btn btn-secondary" onclick="closeActionModal()">취소</button>
-                            <button class="btn btn-primary" onclick="saveAction()">추가</button>
-                        </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeSpeakerModal()">취소</button>
+                        <button class="btn btn-primary" onclick="saveSpeakerMapping()">확인</button>
                     </div>
                 </div>
             </div>
-                    <!-- 챗봇 컨테이너 -->
-        <div id="chatbot-container"></div>
+
+            <!-- 발화 점유율 차트 모달 -->
+            <div id="chartModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">발화 점유율</h3>
+                        <p class="modal-desc">참석자별 발화 비율을 확인하세요</p>
+                    </div>
+                    <div class="modal-body">
+                        <div id="chartContainer">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-primary" onclick="closeChartModal()">확인</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 액션 아이템 추가 모달 -->
+            <div id="actionModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">액션 아이템 추가</h3>
+                        <p class="modal-desc">할 일의 상세 정보를 입력해주세요</p>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label class="form-label">액션 아이템 <span style="color: #ef4444;">*</span></label>
+                            <textarea id="actionTitle" class="form-textarea" placeholder="예: 예산안 작성 및 검토"></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">담당자</label>
+                                <select id="actionAssignee" class="form-select">
+                                    <option value="">선택하세요</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">기한</label>
+                                <input type="date" id="actionDeadline" class="form-input">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeActionModal()">취소</button>
+                        <button class="btn btn-primary" onclick="saveAction()">추가</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="keywordModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">키워드 관리</h3>
+                        <p class="modal-desc">키워드를 직접 추가하거나 삭제합니다.</p>
+                    </div>
+                    <div class="modal-body">
+                        <div class="keyword-add-form" style="margin-top: 0; padding-top: 0; border-top: none;">
+                            <input type="text" id="modalKeywordInput" placeholder="키워드 직접 추가...">
+                            <button onclick="addManualKeywordFromModal()">추가</button>
+                        </div>
+                        <hr class="modal-divider">
+                        <div class="keywords-manage-list" id="keywordManageList">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-primary" onclick="closeKeywordModal()">확인</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="confirmModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title" id="confirmTitle">삭제 확인</h3>
+                    </div>
+                    <div class="modal-body">
+                        <p id="confirmMessage" style="font-size: 15px; line-height: 1.7;"></p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" id="confirmCancelBtn">취소</button>
+                        <button class="btn btn-danger" id="confirmOkBtn">확인</button> </div>
+                </div>
+            </div>
+
+            <div id="addTranscriptModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">발화 로그 추가</h3>
+                        <p class="modal-desc">새로운 발화 로그 정보를 입력하세요.</p>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">발화자 <span style="color: #ef4444;">*</span></label>
+                                <select id="newTranscriptSpeaker" class="form-select">
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">시간 <span style="color: #ef4444;">*</span></label>
+                                <input type="text" id="newTranscriptTime" class="form-input" placeholder="예: 00:15:30">
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">내용 <span style="color: #ef4444;">*</span></label>
+                            <textarea id="newTranscriptText" class="form-textarea" placeholder="발화 내용을 입력하세요..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeAddTranscriptModal()">취소</button>
+                        <button class="btn btn-primary" onclick="saveNewTranscript()">추가</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="chatbot-container"></div>
 
         <!-- 플로팅 버튼 -->
         <button class="floating-chat-btn" id="floatingChatBtn">
@@ -264,6 +391,7 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="./static/js/app.js"></script>
+    <script src="./static/js/lib/jspdf.umd.min.js"></script>
     <script src="./static/js/recordFinish.js"></script>
 </body>
 </html>

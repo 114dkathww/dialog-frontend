@@ -125,7 +125,7 @@
 /* 메인 레이아웃 */
 .rf-main-wrapper {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: 1fr 450px;
   gap: 48px;
   align-items: start;
   flex: 1;
@@ -157,10 +157,19 @@
   margin-bottom: 12px;
 }
 
+.area-header .edit-btn {
+  margin-left: auto;  /* 첫 번째 버튼을 오른쪽으로 */
+}
+
+.area-header .edit-btn + .edit-btn {
+  margin-left: 8px;  /* 두 번째 버튼 간격 */
+}
+
 .area-title {
   font-size: 18px;
   font-weight: 700;
   color: #111827;
+  margin-right: auto;  /* ✅ 타이틀을 왼쪽에, 버튼들을 오른쪽에 */
 }
 
 .area-meta {
@@ -390,6 +399,7 @@
   font-size: 14px;
   line-height: 1.7;
   color: #374151;
+  white-space: pre-wrap;
 }
 
 .summary-editor {
@@ -400,9 +410,30 @@
   font-size: 14px;
   line-height: 1.7;
   resize: vertical;
-  min-height: 50px;
   font-family: inherit;
   color: #374151;
+  min-height: 100px;
+  max-height: 250px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+.summary-editor::-webkit-scrollbar {
+  width: 6px;
+}
+
+.summary-editor::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.summary-editor::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.summary-editor::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
 }
 
 .summary-editor:focus {
@@ -417,20 +448,52 @@
 }
 
 .edit-btn {
-  background: transparent;
-  border: 1px solid #d1d5db;
+  background: white;
+  border: 1px solid #e5e7eb;
   color: #6b7280;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .edit-btn:hover {
   border-color: #8E44AD;
   color: #8E44AD;
+  background: #faf5ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(142, 68, 173, 0.15);
+}
+
+.edit-btn:active {
+  transform: translateY(0);
+}
+
+.edit-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 재생성 버튼 스타일 */
+#regenerateSummaryBtn {
+  background: linear-gradient(135deg, #8E44AD 0%, #9b59b6 100%);
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  box-shadow: 0 2px 8px rgba(142, 68, 173, 0.25);
+}
+
+#regenerateSummaryBtn:hover {
+  background: linear-gradient(135deg, #7d3c98 0%, #8e44ad 100%);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(142, 68, 173, 0.35);
 }
 
 /* 키워드 */
@@ -479,12 +542,15 @@
   margin-bottom: 8px;
 }
 
+/* 액션 아이템 제목 - 전체 표시 */
 .action-title {
   font-size: 14px;
   font-weight: 600;
   color: #111827;
-  line-height: 1.4;
+  line-height: 1.5;
   flex: 1;
+  word-break: keep-all;  /* 한글 단어 단위로 줄바꿈 */
+  white-space: normal;   /* 자동 줄바꿈 */
 }
 
 .action-controls {
@@ -561,13 +627,13 @@
   background: transparent;
   color: #8E44AD;
   border: none;
-  width: 100%;
+  width: auto;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
@@ -865,6 +931,69 @@
   transition: width 0.3s ease;
 }
 
+/* 비활성화 버튼 */
+.btn:disabled,
+.btn-sm:disabled,
+.edit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #d1d5db;
+  border-color: #d1d5db;
+}
+
+.btn:disabled:hover,
+.btn-sm:disabled:hover,
+.edit-btn:disabled:hover {
+  background: #d1d5db;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 안내 문구 - 자연스럽게 */
+.action-info {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0 0 12px 0;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* 작은 버튼 스타일 */
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 액션 헤더 수정 */
+.action-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.action-controls {
+  display: flex;
+  gap: 6px;
+  opacity: 1;
+}
+
+/* 액션 아이템 제목 한 줄로 */
+.rfc-action-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
 /* 반응형 */
 @media (max-width: 1024px) {
   .main-wrapper {
@@ -906,4 +1035,245 @@
 
 .hidden {
   display: none !important;
+}
+
+.transcript-item.is-self {
+  /* (1) 전체 레이아웃을 오른쪽으로 */
+  flex-direction: row-reverse; 
+}
+
+.transcript-item.is-self .transcript-content {
+  /* (3) 말풍선 모양 */
+  border-radius: 12px;
+  padding: 10px 14px;
+  max-width: 80%; /* 너무 길어지지 않게 */
+  float: right; /* 오른쪽 정렬 */
+  clear: both; /* 다음 요소가 붙지 않게 */
+  background: #FFFFFF;
+  border: 1px solid #e5e7eb;
+}
+
+.transcript-item.is-self .transcript-header {
+  display: flex;
+  justify-content: flex-end; 
+}
+
+.transcript-item.is-self .transcript-text {
+  /* (5) 말풍선 안의 텍스트 색상 */
+  color: #374151; 
+  font-size: 15px;
+  padding-top: 4px;
+}
+
+/* (6) 다른 사람(is-self가 아닐 때) 말풍선 스타일 */
+.transcript-item:not(.is-self) .transcript-content {
+  background: #FFFFFF;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px 14px;
+  max-width: 80%;
+  float: left;
+  clear: both;
+}
+
+/* (7) 다른 사람 말풍선 안의 헤더(이름, 시간)는 보이도록 */
+.transcript-item:not(.is-self) .transcript-header {
+    display: flex;
+}
+
+/* (8) 다른 사람 말풍선 안의 텍스트 */
+.transcript-item:not(.is-self) .transcript-text {
+    padding-top: 4px; /* 이름과 간격 */
+}
+
+.keyword-add-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 16px;
+}
+
+.keyword-add-form input {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  min-width: 0; /* flex 아이템이 줄어들 수 있도록 */
+}
+
+.keyword-add-form input:focus {
+  outline: none;
+  border-color: #8E44AD;
+  box-shadow: 0 0 0 3px rgba(142, 68, 173, 0.1);
+}
+
+.keyword-add-form button {
+  background: #8E44AD;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.keyword-add-form button:hover {
+  background: #7d3c98;
+}
+
+/* .keyword-user는 색상을 다르게 지정합니다. */
+.keyword.keyword-user {
+  background: #f3e5f5; /* 연한 보라색 배경 */
+  color: #8E44AD; /* 진한 보라색 글씨 */
+  border: 1px solid #d1a3e0; /* 보라색 테두리 */
+}
+
+/* 사용자가 추가한 키워드에 마우스 올렸을 때 */
+.keyword.keyword-user:hover {
+  background: #e8d5f0;
+}
+
+/* 사용자가 추가한 키워드를 클릭(활성화)했을 때 */
+.keyword.keyword-user.active {
+  background: #8E44AD;
+  color: #FFFFFF;
+  border-color: #8E44AD;
+}
+
+hr.modal-divider {
+	border: none;
+	border-top: 1px solid #e5e7eb;
+	margin: 20px 0;
+}
+
+.keywords-manage-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-height: 250px;
+	overflow-y: auto;
+	padding-right: 8px;
+}
+
+/* (스크롤바 스타일) */
+.keywords-manage-list::-webkit-scrollbar {
+	width: 6px;
+}
+.keywords-manage-list::-webkit-scrollbar-track {
+	background: transparent;
+}
+.keywords-manage-list::-webkit-scrollbar-thumb {
+	background: #d1d5db;
+	border-radius: 3px;
+}
+
+.keyword-manage-item {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 10px 14px;
+	border-radius: 8px;
+	border: 1px solid #e5e7eb;
+	background: #f9fafb;
+}
+
+.keyword-manage-item .keyword-text {
+	font-size: 14px;
+	font-weight: 600;
+	color: #374151;
+}
+
+/* (AI/사용자 구분 태그) */
+.keyword-manage-item .keyword-source-tag {
+	font-size: 11px;
+	font-weight: 700;
+	padding: 3px 8px;
+	border-radius: 99px;
+	margin-left: 10px;
+}
+
+.keyword-manage-item .keyword-source-tag.ai {
+	background: #e5e7eb;
+	color: #4b5563;
+}
+
+.keyword-manage-item .keyword-source-tag.user {
+	background: #f3e5f5;
+	color: #8E44AD;
+}
+
+/* 중요도 레벨별 색상 */
+.importance-level {
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 13px;
+  color: white;
+  display: inline-block; /* span 태그에 패딩을 주기 위함 */
+  margin-bottom: 4px;
+}
+
+.level-high {
+  background: #ef4444; /* Red */
+}
+
+.level-medium {
+  background: #f97316; /* Orange */
+}
+
+.level-low {
+  background: #eab308; /* Yellow */
+}
+
+.level-default {
+  background: #8E44AD; /* '보통' 또는 기타용 Default Purple */
+}
+
+.btn-danger {
+  background: #8E44AD; color: white;
+}
+
+/* [수정] 3개 버튼(수정, 삭제, 복구)의 기본 스타일을 통합합니다. */
+.edit-transcript-btn,
+.delete-transcript-btn,
+.undo-transcript-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  padding: 4px;
+  cursor: pointer;
+  opacity: 0; /* 기본 상태: 숨김 */
+  transition: all 0.2s;
+}
+
+/* [수정] transcript-item에 마우스를 올렸을 때만 3개 버튼 모두 표시 */
+.transcript-item:hover .edit-transcript-btn,
+.transcript-item:hover .delete-transcript-btn,
+.transcript-item:hover .undo-transcript-btn {
+  opacity: 1;
+}
+
+/* 삭제된 발화 로그 스타일 */
+.transcript-item.is-deleted .transcript-content,
+.transcript-item.is-deleted .speaker-name,
+.transcript-item.is-deleted .time-stamp {
+    text-decoration: line-through;
+    color: #9ca3af !important; /* 회색으로 처리 */
+    background: #f9fafb; /* 배경도 살짝 변경 */
+}
+
+/* 각 버튼에 마우스를 올렸을 때(hover) 색상 변경 */
+.edit-transcript-btn:hover {
+  color: #8E44AD; /* 수정: 보라 */
+}
+.delete-transcript-btn:hover {
+  color: #ef4444 !important; /* 삭제: 빨강 */
+}
+.undo-transcript-btn:hover {
+  color: #10b981 !important; /* 복구: 초록 */
 }
