@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스토리지 관리 | 네이버 클로바노트</title>
+  <link rel="stylesheet" href="static/css/storage.css">
+  <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar-trigger"></div>
+    <div id="sidebar-container"></div>
+    <main class="main-content">
+      <div id="storagePage" class="content-wrapper">
+        <div class="page-header">
+          <h2>STT 스토리지 관리</h2>
+          <p class="sub">네이버 클로바노트 스토리지 용량 및 연결 설정을 관리하세요</p>
+        </div>
+        <div class="card storage-main-card">
+          <div class="storage-row">
+            <div>
+              <h4 class="storage-label">클로바노트 계정</h4>
+              <span class="storage-value">cloud_admin@mycompany.com</span>
+            </div>
+            <div>
+              <h4 class="storage-label">연동 상태</h4>
+              <span class="storage-status success">정상 연동</span>
+            </div>
+            <div>
+              <h4 class="storage-label">최근 연동</h4>
+              <span class="storage-value">2025-11-06 14:30</span>
+            </div>
+          </div>
+          <div class="storage-row">
+            <div>
+              <h4 class="storage-label">전체 용량</h4>
+              <span class="storage-value">100GB</span>
+            </div>
+            <div>
+              <h4 class="storage-label">사용중</h4>
+              <span class="storage-value used">47.2GB</span>
+            </div>
+            <div>
+              <h4 class="storage-label">남은 용량</h4>
+              <span class="storage-value free">52.8GB</span>
+            </div>
+          </div>
+          <div class="storage-bar">
+            <div class="storage-bar-used" style="width:47.2%;"></div>
+          </div>
+          <div class="storage-actions">
+            <button class="storage-btn refresh" onclick="refreshStorage()">갱신</button>
+            <button class="storage-btn disconnect" onclick="disconnectStorage()">
+              연동 해제
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="static/js/app.js"></script>
+  <script src="static/js/storage.js"></script>
+</body>
+</html>

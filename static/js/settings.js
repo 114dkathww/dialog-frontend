@@ -1,52 +1,43 @@
 /* ===============================
-    Chatbot & Sidebar Fetch
+   Chatbot & Sidebar Fetch
 =================================*/
-// 페이지(HTML) 로드가 완료되면(DOMContentLoaded) async(비동기)로 함수를 실행합니다.
-document.addEventListener("DOMContentLoaded", async () => {
-    // (핵심) 페이지 로드 시, 가장 먼저 사용자 정보를 비동기로 가져옵니다.
-    const loggedInUser = await loadCurrentUser();
-
-    // 1. 챗봇 컴포넌트(HTML)를 불러와서 페이지에 삽입
+document.addEventListener("DOMContentLoaded", () => {
+    // 챗봇 로드
     fetch("components/chatbot.html")
         .then(res => res.text())
         .then(html => {
-            // 'chatbot-container' ID를 가진 요소에 불러온 HTML을 삽입
             const container = document.getElementById("chatbot-container");
             container.innerHTML = html;
 
-            // 챗봇 내부의 버튼/입력창 요소를 찾습니다.
             const closeBtn = container.querySelector(".close-chat-btn");
             const sendBtn = container.querySelector(".send-btn");
             const chatInput = container.querySelector("#chatInput");
             const floatingBtn = document.getElementById("floatingChatBtn");
 
-            // 찾은 요소들에 클릭/키보드 이벤트 리스너를 연결합니다.
             if (closeBtn) closeBtn.addEventListener("click", closeChat);
             if (sendBtn) sendBtn.addEventListener("click", sendMessage);
             if (chatInput) chatInput.addEventListener("keypress", handleChatEnter);
             if (floatingBtn) floatingBtn.addEventListener("click", openChat);
         });
     
-    // 2. 사이드바 컴포넌트(HTML)를 불러와서 페이지에 삽입
+    // 사이드바 로드
     fetch("components/sidebar.html")
         .then(res => res.text())
         .then(async html => {
             const sidebar = document.getElementById("sidebar-container");
             sidebar.innerHTML = html;
 
-            // (재사용) 처음에 가져온 사용자 정보(loggedInUser)로 사이드바 UI를 채웁니다.
-            if (loggedInUser) {
-                displayUserName(loggedInUser); 
-            }
+            // ✅ 사이드바 로드 후 사용자 정보 주입
+            await loadCurrentUser();
 
-            // (UI/UX) 현재 URL을 확인하여 일치하는 사이드바 메뉴에 'active' 클래스를 추가합니다.
+            // 현재 페이지 활성화
             const currentPage = window.location.pathname.split("/").pop();
             const navItems = sidebar.querySelectorAll(".nav-menu a");
 
             navItems.forEach(item => {
-                const linkPath = item.getAttribute("href"); // 예: 'settings.html'
+                const linkPath = item.getAttribute("href");
                 if (linkPath === currentPage) {
-                    item.classList.add("active"); // 일치하면 'active' 클래스 추가
+                    item.classList.add("active");
                 } else {
                     item.classList.remove("active");
                 }
@@ -55,60 +46,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         .catch(error => {
             console.error('사이드바 로드 실패:', error);
         });
-
-    // 3. (재사용) 처음에 가져온 사용자 정보로 '개인정보' 섹션의 입력 필드를 채웁니다.
-    if (loggedInUser) {
-        fillPersonalInfoFields(loggedInUser);
-    }
 });
-
-// (API 호출 1) 백엔드에 현재 로그인한 사용자 정보를 요청 (GET)
-async function loadCurrentUser() {
-    try {
-        const response = await fetch('http://localhost:8080/api/auth/me', {
-            credentials: 'include' // (중요) 인증 쿠키(세션)를 요청에 포함시킵니다.
-        });
-        if (response.ok) {
-            const user = await response.json(); // { "name": "...", "email": "..." }
-            return user; // 사용자 정보 객체 반환
-        } else if (response.status === 401) {
-            // 401 Unauthorized: 로그인되지 않은 사용자면 로그인 페이지로 보냅니다.
-            window.location.href = '/login.html';
-            return null;
-        } else {
-            // 404, 500 등 기타 에러 시, 사용자 이름을 'null'로 처리하여 기본값으로 표시
-            displayUserName(null);
-            return null;
-        }
-    } catch (error) {
-        console.error('네트워크 오류', error);
-        return null;
-    }
-}
-
-// 사용자 이름 표시
-function displayUserName(user) {
-    // 메인 헤더
-    const nameElement = document.querySelector("#user-name");
-    if (nameElement)
-        nameElement.textContent = (user && user.name) || (user && user.email) || '사용자';
-
-    // 사이드바 이름
-    document.querySelectorAll(".user-name").forEach(el => {
-        el.textContent = (user && user.name) || (user && user.email) || '사용자';
-    });
-
-    // 사이드바 이메일
-    document.querySelectorAll(".user-email").forEach(el => {
-        el.textContent = (user && user.email) || '';
-    });
-
-    // 사이드바 아바타 (선택)
-    document.querySelectorAll(".user-avatar").forEach(el => {
-        el.textContent = (user && user.name) ? user.name.charAt(0).toUpperCase() : "U";
-    });
-}
-
 // 새 함수 추가: 개인정보 섹션의 Input 필드에 사용자 정보와 로컬 설정을 주입
 function fillPersonalInfoFields(user) {
     // 1. API에서 가져온 사용자 정보 주입

@@ -82,7 +82,7 @@ function showPage(pageName) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
         item.addEventListener('click', (e) => {
@@ -91,7 +91,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pageName) showPage(pageName);
         });
     });
+
+    try {
+        // 현재 로그인된 사용자 정보 가져오기
+        const user = await loadCurrentUser();
+        // 관리자 페이지 이동 버튼 요소
+        const adminBtn = document.getElementById('adminButton');
+        // role이 ADMIN인지 체크 후 버튼 노출/숨김 제어
+        if (user && user.role === 'ADMIN' && adminBtn) {
+            adminBtn.style.display = 'inline-block'; // 버튼 보이기
+        } else if (adminBtn) {
+            adminBtn.style.display = 'none'; // 버튼 숨기기
+        }
+    } catch (error) {
+        console.error('유저 정보 로드 실패:', error);
+        const adminBtn = document.getElementById('adminButton');
+        if (adminBtn) adminBtn.style.display = 'none'; // 문제 발생 시 버튼 숨김
+    }
 });
+
 
 // 프로필 드롭다운 토글
 function toggleProfileDropdown() {
@@ -148,6 +166,13 @@ function parseJwt(token) {
         return null; 
     }
 }
+
+// 어드민 페이지로 이동
+function goToAdminDashboard() {
+  window.location.href = '/dashboard.html';  
+}
+
+
 
 // =====================================
 // ✅ 사용자 정보 주입 함수 (통합)
@@ -360,14 +385,3 @@ function logout() {
         dropdown.classList.remove('active');
     }
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
-        item.addEventListener('click', (e) => {
-            e.preventDefault();
-            const pageName = item.getAttribute('data-page');
-            if (pageName) showPage(pageName);
-        });
-    });
-});

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>회의 관리</title>
+  <link rel="stylesheet" href="static/css/meeting-management.css">
+  <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar-trigger"></div>
+    <div id="sidebar-container"></div>
+    <main class="main-content">
+      <div id="meetingManagementPage" class="content-wrapper">
+        <div class="page-header" style="display:flex;align-items:center;gap:12px;">
+          <h2 style="margin:0;">회의 관리</h2>
+        </div>
+        <div class="card meeting-card">
+          <div class="card-header">
+            <h3 class="card-title">전체 회의 목록</h3>
+          </div>
+          <div class="meeting-table-scroll">
+            <table class="meetings-table">
+              <thead>
+                <tr>
+                  <th>회의명</th>
+                  <th>날짜</th>
+                  <th>참여자</th>
+                  <th>상태</th>
+                  <th>작성자</th>
+                  <th>관리</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>개발팀 정기 회의</td>
+                  <td>2025-11-01</td>
+                  <td>김영희, 홍길동</td>
+                  <td><span class="meeting-status closed">종료</span></td>
+                  <td>김영희</td>
+                  <td>
+                    <div class="meeting-actions">
+                      <button class="small-action-btn">상세</button>
+                      <button class="small-action-btn">수정</button>
+                      <button class="small-action-btn danger">삭제</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>신제품 킥오프</td>
+                  <td>2025-11-05</td>
+                  <td>홍길동, 이영희</td>
+                  <td><span class="meeting-status ongoing">진행중</span></td>
+                  <td>홍길동</td>
+                  <td>
+                    <div class="meeting-actions">
+                      <button class="small-action-btn">상세</button>
+                      <button class="small-action-btn">수정</button>
+                      <button class="small-action-btn danger">삭제</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="static/js/app.js"></script>
+  <script src="static/js/meeting-management.js"></script>
+</body>
+</html>

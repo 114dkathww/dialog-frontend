@@ -74,6 +74,28 @@ async function loadCurrentUser() {
   }
 }
 
+// 사용자 이름 표시
+function displayUserName(user) {
+    // 메인 헤더
+    const nameElement = document.querySelector("#user-name");
+    if (nameElement)
+        nameElement.textContent = (user && user.name) || (user && user.email) || '사용자';
+
+    // 사이드바 이름
+    document.querySelectorAll(".user-name").forEach(el => {
+        el.textContent = (user && user.name) || (user && user.email) || '사용자';
+    });
+
+    // 사이드바 이메일
+    document.querySelectorAll(".user-email").forEach(el => {
+        el.textContent = (user && user.email) || '';
+    });
+
+    // 사이드바 아바타 (선택)
+    document.querySelectorAll(".user-avatar").forEach(el => {
+        el.textContent = (user && user.name) ? user.name.charAt(0).toUpperCase() : "U";
+    });
+}
 
 function openConfirmModal(title, message, onConfirm) {
   const modal = document.getElementById('confirmModal');
@@ -200,7 +222,9 @@ async function loadMeetingData() {
         }
 
         // Spring API 호출
-        const res = await fetch(`http://localhost:8080/api/meetings/${meetingId}`);
+        const res = await fetch(`http://localhost:8080/api/meetings/${meetingId}`, {
+            credentials: 'include'  // 중요: 쿠키 포함
+        });
         if (!res.ok) throw new Error("회의 정보 불러오기 실패");
 
         meetingData = await res.json();
@@ -219,8 +243,8 @@ function displayMeetingInfo() {
   document.getElementById('meetingTitle').textContent = meetingData.title || '제목 없음';
 
   // 회의 일시
-  if (meetingData.date) {
-    const date = new Date(meetingData.date);
+  if (meetingData.scheduledAt) {
+    const date = new Date(meetingData.scheduledAt);
     const formatted = date.toLocaleString('ko-KR', {
       year: 'numeric',
       month: 'long',

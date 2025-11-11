@@ -105,26 +105,19 @@ signinForm.addEventListener('submit', async function(e) {
     }
     
     try {
-        // JWT 로그인 API 호출
         const response = await fetch('http://localhost:8080/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
+            body: JSON.stringify({ email, password }),
+            credentials: 'include' // <-- 이 줄 추가!
         });
         const data = await response.json();
 
         if (response.ok && data.token) {
-            // 성공 시 JWT 토큰 저장
-            localStorage.setItem('accessToken', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
-            // 이 부분 추가!
-            console.log('발급된 JWT 토큰:', data.token);
-            console.log('로그인 사용자 정보:', data.user);
-            // 알림 및 메인 페이지 이동
+            // localStorage 저장은 제거해도 됨 (쿠키 인증만 씀)
             alert('로그인 성공!');
             window.location.href = '/home.html'; 
         } else {
-            // 실패 시 응답 메시지 노출
             alert('로그인 실패: ' + (data.message || '알 수 없는 오류'));
         }
     } catch (error) {
@@ -209,8 +202,8 @@ signupForm.addEventListener('submit', function(e) {
     }
     
     // 비밀번호 길이 검증
-    if (password.length < 6) {
-        showAlert('비밀번호는 6자 이상 입력해주세요.', 'error');
+    if (password.length < 12) {
+        showAlert('비밀번호는 12자 이상 입력해주세요.', 'error');
         return;
     }
     
