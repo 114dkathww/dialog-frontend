@@ -22,21 +22,19 @@
     <main class="main-content">
       <!-- Main Page -->
       <div id="mainPage" class="content-wrapper">
-      <div class="page-header" style="display: flex; align-items: center; gap: 10px;">
-        <h2 style="margin:0;">안녕하세요, <span id="user-name">사용자</span>님</h2>
-        <button
-          id="adminButton"
-          class="admin-btn-small cta-btn"
-          style="display:none; margin-left:8px;"
-          onclick="goToAdminDashboard()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:5px;">
-            <path d="M12 2v20M2 12h20"/>
-          </svg>
-          관리자 페이지
-        </button>
-      </div>
-      <p id="current-date-display">오늘도 생산적인 하루를 만들어가세요</p>
+        <div class="page-header" style="display: flex; align-items: center; gap: 10px;">
+          <h2 style="margin:0;">안녕하세요, <span id="user-name">사용자</span>님</h2>
+          <button id="adminButton" class="admin-btn-small cta-btn" style="display:none; margin-left:8px;"
+            onclick="goToAdminDashboard()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              style="vertical-align:middle;margin-right:5px;">
+              <path d="M12 2v20M2 12h20" />
+            </svg>
+            관리자 페이지
+          </button>
         </div>
+        <p id="current-date-display">오늘도 생산적인 하루를 만들어가세요</p>
+        <!-- </div> -->
 
         <div class="cta-banner">
           <h3>새로운 회의를 시작할 준비가 되셨나요?</h3>
@@ -54,7 +52,7 @@
           <div class="card">
             <div class="card-header">
               <h3 class="card-title">최근 회의</h3>
-              <a class="card-link" onclick="goToMeetings()">전체보기</a> 
+              <a class="card-link" onclick="goToMeetings()">전체보기</a>
             </div>
             <div class="meeting-list">
               <!-- JavaScript로 동적 렌더링 -->
@@ -149,7 +147,7 @@
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   <script src="static/js/app.js"></script>
   <script src="static/js/home.js"></script>
-  
+
   <link rel="stylesheet" href="static/css/home.css">
 </body>
 
