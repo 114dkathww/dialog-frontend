@@ -27,10 +27,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const sidebar = document.getElementById("sidebar-container");
             sidebar.innerHTML = html;
 
-            // ✅ 사이드바 로드 후 사용자 정보 주입
             loadCurrentUser();
 
-            // 현재 페이지 활성화
             const currentPage = window.location.pathname.split("/").pop();
             const navItems = sidebar.querySelectorAll(".nav-menu a");
 
@@ -48,13 +46,11 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 });
 
-
-
-// 사용자 정보 로드 함수 (API에서만)
+// 사용자 정보 로드
 async function loadCurrentUser() {
   try {
     const response = await fetch('http://localhost:8080/api/auth/me', {
-      credentials: 'include'  // 이 옵션만 있으면 브라우저가 HttpOnly 쿠키를 요청에 자동 포함!
+      credentials: 'include'
     });
     if (response.ok) {
       const user = await response.json();
@@ -109,7 +105,6 @@ function openConfirmModal(title, message, onConfirm) {
 
   modal.classList.remove('hidden');
 
-  // 클릭 핸들러
   const closeModal = () => modal.classList.add('hidden');
   cancelBtn.onclick = closeModal;
   okBtn.onclick = () => {
@@ -119,7 +114,7 @@ function openConfirmModal(title, message, onConfirm) {
 }
 
 /* ===============================
-공통 메시지 함수
+   공통 메시지 함수
 =================================*/
 function showSuccessMessage(message) {
   const existing = document.querySelector('.success-message');
@@ -128,26 +123,19 @@ function showSuccessMessage(message) {
   const msg = document.createElement('div');
   msg.className = 'success-message';
   msg.style.cssText = `
-        position: fixed;
-        top: 24px;
-        right: 24px;
-        background: #10b981;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        animation: slideInRight 0.3s ease;
-    `;
+    position: fixed; top: 24px; right: 24px;
+    background: #10b981; color: white;
+    padding: 16px 24px; border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    z-index: 9999; display: flex; align-items: center; gap: 12px;
+    animation: slideInRight 0.3s ease;
+  `;
   msg.innerHTML = `
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="20 6 9 17 4 12"/>
-        </svg>
-        <span>${message}</span>
-    `;
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+    <span>${message}</span>
+  `;
   document.body.appendChild(msg);
 
   setTimeout(() => {
@@ -163,28 +151,21 @@ function showErrorMessage(message) {
   const msg = document.createElement('div');
   msg.className = 'error-message';
   msg.style.cssText = `
-        position: fixed;
-        top: 24px;
-        right: 24px;
-        background: #ef4444;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        animation: slideInRight 0.3s ease;
-    `;
+    position: fixed; top: 24px; right: 24px;
+    background: #ef4444; color: white;
+    padding: 16px 24px; border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+    z-index: 9999; display: flex; align-items: center; gap: 12px;
+    animation: slideInRight 0.3s ease;
+  `;
   msg.innerHTML = `
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <span>${message}</span>
-    `;
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="15" y1="9" x2="9" y2="15"/>
+      <line x1="9" y1="9" x2="15" y2="15"/>
+    </svg>
+    <span>${message}</span>
+  `;
   document.body.appendChild(msg);
 
   setTimeout(() => {
@@ -193,37 +174,340 @@ function showErrorMessage(message) {
   }, 3000);
 }
 
-document.querySelectorAll('.info-card-collapsible .info-header').forEach(header => {
-  header.addEventListener('click', () => {
-    const card = header.closest('.info-card-collapsible');
-    card.classList.toggle('collapsed');
+/* ===============================
+   WebSocket STT 연결
+=================================*/
+let ws = null;
+let isWebSocketConnected = false;
+let mediaRecorder = null;
+let micStream = null;
+let sentences = [];  // 문장 저장 배열
+let isRecordingComplete = false;
+
+// 🆕 녹음 파일 메타데이터 저장
+let recordingMetadata = {
+  audioFileUrl: '',
+  audioFormat: 'wav',
+  audioFileSize: null,
+  durationSeconds: 0
+};
+
+function connectSTTWebSocket(language = "ko") {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log("이미 WebSocket 연결되어 있음");
+    return;
+  }
+
+  try {
+    ws = new WebSocket('ws://localhost:8000/ws/realtime');
+    
+    ws.onopen = () => {
+      console.log('✅ WebSocket 연결 성공');
+      isWebSocketConnected = true;
+      
+      // STT 시작 신호 전송
+      ws.send(JSON.stringify({
+        action: 'start',
+        language: language
+      }));
+      
+      showSuccessMessage('음성 인식이 시작되었습니다');
+    };
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleWebSocketMessage(data);
+      } catch (err) {
+        console.error('메시지 파싱 오류:', err);
+      }
+    };
+    
+    ws.onerror = (error) => {
+      console.error('❌ WebSocket 오류:', error);
+      showErrorMessage('음성 인식 서버 연결 실패');
+      isWebSocketConnected = false;
+    };
+    
+    ws.onclose = () => {
+      console.log('🔌 WebSocket 연결 종료');
+      isWebSocketConnected = false;
+    };
+  } catch (error) {
+    console.error('WebSocket 연결 실패:', error);
+    showErrorMessage('음성 인식 서버에 연결할 수 없습니다');
+  }
+}
+
+// WebSocket 메시지 처리 (발화자 분석 제거)
+function handleWebSocketMessage(data) {
+  console.log('📨 받은 메시지:', data);
+  
+  switch(data.type) {
+    case 'status':
+      if (data.message === 'recording') {
+        console.log('🎙️ STT 시작됨');
+      } else if (data.message === 'stopping') {
+        console.log('🛑 STT 중지 중...');
+      } else if (data.message === 'paused') {
+        console.log('⏸️ STT 일시정지됨');
+      } else if (data.message === 'resumed') {
+        console.log('▶️ STT 재개됨');
+      }
+      break;
+      
+    case 'data':
+    case 'transcription':
+      handleTranscription(data);
+      break;
+      
+    case 'audio_uploaded':
+      console.log('✅ 오디오 업로드 완료:', data.file_url);
+      
+      // Recording 엔티티 필드에 맞춰 메타데이터 저장
+      recordingMetadata.audioFileUrl = data.file_url;
+      recordingMetadata.audioFormat = data.audio_format || 'wav';
+      recordingMetadata.audioFileSize = data.file_size || null;
+      
+      // 하위 호환성을 위한 기존 저장소도 유지
+      localStorage.setItem('uploadedAudioUrl', data.file_url);
+      sessionStorage.setItem('uploaded_file_url', data.file_url);
+      
+      if (data.audio_format) {
+        sessionStorage.setItem('audio_format', data.audio_format);
+      }
+      if (data.file_size) {
+        sessionStorage.setItem('audio_file_size', data.file_size);
+      }
+      break;
+      
+    case 'done':
+      console.log('✅ STT 완료');
+      console.log('전체 텍스트:', data.fullText);
+      console.log('문장 수:', data.sentenceCount);
+      isRecordingComplete = true;
+      
+      if (data.file_url) {
+        recordingMetadata.audioFileUrl = data.file_url;
+        localStorage.setItem('uploadedAudioUrl', data.file_url);
+        sessionStorage.setItem('uploaded_file_url', data.file_url);
+      }
+      
+      // 최종 녹음 시간 업데이트
+      recordingMetadata.durationSeconds = timerSeconds;
+      
+      showSuccessMessage('녹음이 완료되었습니다!');
+      break;
+      
+    case 'error':
+      console.error('❌ STT 에러:', data.message);
+      showErrorMessage('음성 인식 중 오류 발생');
+      break;
+  }
+}
+
+// 📝 개선된 실시간 인식 처리 함수
+function handleTranscription(data) {
+  const {
+    text,
+    fullText,
+    isSentenceEnd,
+    isFinal
+  } = data;
+
+  // 서버 타임스탬프
+  let startTimestamp = data.startTimestamp || data.start_timestamp;
+  let endTimestamp = data.endTimestamp || data.end_timestamp;
+  
+  // 현재 오디오 시간
+  const currentAudioTime = timerSeconds * 1000; // ms로 변환
+
+  if (!text) return;
+
+  // 1. 중간 인식 결과 처리
+  if (!isFinal && !isSentenceEnd) {
+    updatePartialTranscript(text);
+    return;
+  }
+
+  // 2. 최종 인식 결과 처리
+  if (isFinal || isSentenceEnd) {
+    // 부분 인식 결과 제거
+    const partialDiv = document.getElementById('partialTranscript');
+    if (partialDiv) partialDiv.remove();
+
+    // 최종 텍스트 결정
+    let finalText = fullText ? fullText.trim() : text.trim();
+    if (finalText.length === 0) return;
+
+    // 타임스탬프 보완
+    if (endTimestamp === undefined) {
+      endTimestamp = currentAudioTime;
+    }
+    if (startTimestamp === undefined && sentences.length > 0) {
+      startTimestamp = sentences[sentences.length - 1].endTs;
+    } else if (startTimestamp === undefined) {
+      startTimestamp = 0;
+    }
+
+    // 3. 문장 병합 로직 (이전 문장이 불완전한 경우)
+    if (sentences.length > 0 && isFragment(sentences[sentences.length - 1].text)) {
+      const lastSentence = sentences[sentences.length - 1];
+      lastSentence.text += ' ' + finalText;
+      lastSentence.endTs = endTimestamp;
+      
+      // 병합 후 구두점 추가
+      if (needsPunctuation(lastSentence.text) && /[요다죠니다음습니다음죠]$/.test(lastSentence.text.trim())) {
+        lastSentence.text += '.';
+      }
+    } else {
+      // 4. 새로운 문장으로 추가
+      // 구두점 보완
+      if (needsPunctuation(finalText) && /[요다죠니다음습니다음죠]$/.test(finalText)) {
+        finalText += '.';
+      }
+
+      sentences.push({
+        text: finalText,
+        startTs: startTimestamp,
+        endTs: endTimestamp,
+        speaker: data.speaker || meetingData?.participants?.[0] || '화자'
+      });
+    }
+
+    // 5. 화면에 표시
+    displaySentences();
+    updateTranscriptCount();
+  }
+}
+
+// 구두점 체크 함수
+function needsPunctuation(txt) {
+  return !/[.?!]$/.test(txt.trim());
+}
+
+// 불완전한 문장 체크
+function isFragment(txt) {
+  const trimmed = txt.trim();
+  return needsPunctuation(trimmed) && !/[요다죠니다음습니다음죠]$/.test(trimmed);
+}
+
+// 문장 화면 표시
+function displaySentences() {
+  const transcriptContent = document.getElementById('transcriptContent');
+  
+  // 기존 내용 제거 (빈 상태 메시지 포함)
+  const emptyState = transcriptContent.querySelector('.empty-state');
+  if (emptyState) emptyState.remove();
+
+  sentences.forEach((sentence, index) => {
+    // 이미 표시된 문장인지 확인
+    let existingItem = transcriptContent.querySelector(`[data-sentence-index="${index}"]`);
+    
+    if (existingItem) {
+      // 기존 문장 업데이트 (병합된 경우)
+      const textDiv = existingItem.querySelector('.transcript-text');
+      if (textDiv) {
+        textDiv.innerHTML = highlightKeywords(sentence.text);
+      }
+    } else {
+      // 새 문장 추가
+      const item = document.createElement('div');
+      item.className = 'transcript-item';
+      item.setAttribute('data-sentence-index', index);
+      
+      const timestamp = formatTime(Math.floor(sentence.startTs / 1000) || timerSeconds);
+      const highlightedText = highlightKeywords(sentence.text);
+      
+      item.innerHTML = `
+        <div class="transcript-meta">
+          <span class="transcript-time">${timestamp}</span>
+        </div>
+        <div class="transcript-text">${highlightedText}</div>
+      `;
+      
+      transcriptContent.appendChild(item);
+    }
   });
-});
+
+  scrollToBottom();
+}
+
+// 키워드 하이라이팅
+function highlightKeywords(text) {
+  let highlightedText = text;
+  if (meetingData && meetingData.keywords) {
+    meetingData.keywords.forEach((keyword, index) => {
+      const regex = new RegExp(`(${keyword})`, 'gi');
+      const colorClass = `keyword-highlight-${index % 6}`;
+      highlightedText = highlightedText.replace(regex, `<mark class="${colorClass}">$1</mark>`);
+    });
+  }
+  return highlightedText;
+}
+
+// 중간 인식 결과 표시
+function updatePartialTranscript(text) {
+  let partialDiv = document.getElementById('partialTranscript');
+  
+  if (!partialDiv) {
+    partialDiv = document.createElement('div');
+    partialDiv.id = 'partialTranscript';
+    partialDiv.className = 'transcript-item partial';
+    partialDiv.style.opacity = '0.5';
+    partialDiv.style.fontStyle = 'italic';
+    partialDiv.style.border = '1px dashed #ccc';
+    
+    const transcriptContent = document.getElementById('transcriptContent');
+    transcriptContent.appendChild(partialDiv);
+  }
+  
+  partialDiv.innerHTML = `
+    <div class="transcript-meta">
+      <span class="transcript-time">${formatTime(timerSeconds)}</span>
+      <span style="color: #999; font-style: italic; margin-left: 10px;">인식 중...</span>
+    </div>
+    <div class="transcript-text" style="color: #666;">${text}</div>
+  `;
+  
+  scrollToBottom();
+}
 
 /* ===============================
-   회의 데이터 로드 및 표시
+   카드 접기/펼치기
+=================================*/
+const participantsCard = document.getElementById('participantsCard');
+const keywordsCard = document.getElementById('keywordsCard');
+
+if (participantsCard) {
+  participantsCard.querySelector('.info-header').addEventListener('click', () => {
+    participantsCard.classList.toggle('collapsed');
+  });
+}
+
+if (keywordsCard) {
+  keywordsCard.querySelector('.info-header').addEventListener('click', () => {
+    keywordsCard.classList.toggle('collapsed');
+  });
+}
+
+/* ===============================
+   회의 데이터 로드
 =================================*/
 let meetingData = null;
 let isRecording = false;
-let mediaRecorder = null; 
-let recordedChunks = [];
 
 async function loadMeetingData() {
     try {
         const meetingId = localStorage.getItem("currentMeetingId");
-
-        // meetingId가 없으면 스킵
+        
         if (!meetingId) {
-            console.warn("회의 ID가 없습니다. 로컬 데이터 사용");
-            const stored = localStorage.getItem('currentMeeting');
-            if (stored) meetingData = JSON.parse(stored);
-            displayMeetingInfo();
+            console.warn('회의 ID가 없습니다');
             return;
         }
 
-        // Spring API 호출
         const res = await fetch(`http://localhost:8080/api/meetings/${meetingId}`, {
-            credentials: 'include'  // 중요: 쿠키 포함
+            credentials: 'include'
         });
         if (!res.ok) throw new Error("회의 정보 불러오기 실패");
 
@@ -239,12 +523,10 @@ async function loadMeetingData() {
 function displayMeetingInfo() {
   if (!meetingData) return;
 
-  // 회의 제목
   document.getElementById('meetingTitle').textContent = meetingData.title || '제목 없음';
 
-  // 회의 일시
-  if (meetingData.scheduledAt) {
-    const date = new Date(meetingData.scheduledAt);
+  if (meetingData.date) {
+    const date = new Date(meetingData.date);
     const formatted = date.toLocaleString('ko-KR', {
       year: 'numeric',
       month: 'long',
@@ -255,7 +537,6 @@ function displayMeetingInfo() {
     document.getElementById('meetingDate').textContent = formatted;
   }
 
-  // 회의 설명
   if (meetingData.description && meetingData.description.trim()) {
     document.getElementById('meetingDescription').textContent = meetingData.description;
   } else {
@@ -274,9 +555,9 @@ function displayMeetingInfo() {
       const chip = document.createElement('div');
       chip.className = 'participant-chip';
       chip.innerHTML = `
-                <div class="participant-avatar-mini">${name.charAt(0)}</div>
-                <span>${name}</span>
-            `;
+        <div class="participant-avatar-mini">${name.charAt(0)}</div>
+        <span>${name}</span>
+      `;
       participantsList.appendChild(chip);
     });
   } else {
@@ -301,6 +582,7 @@ function displayMeetingInfo() {
     document.getElementById('keywordCount').textContent = '0개';
   }
 }
+
 /* ===============================
    타이머 기능
 =================================*/
@@ -312,6 +594,7 @@ function startTimer() {
   timerInterval = setInterval(() => {
     if (!isPaused) {
       timerSeconds++;
+      recordingMetadata.durationSeconds = timerSeconds;
       updateTimerDisplay();
     }
   }, 1000);
@@ -341,209 +624,22 @@ function formatTime(seconds) {
 }
 
 /* ===============================
-   녹음 시작 기능
-=================================*/
-const startBtn = document.getElementById('startBtn');
-const pauseBtn = document.getElementById('pauseBtn');
-const endBtn = document.getElementById('endBtn');
-
-startBtn.addEventListener('click', () => {
-  isRecording = true;
-
-  // UI 전환
-  startBtn.style.display = 'none';
-  pauseBtn.style.display = 'flex';
-
-  // 종료 버튼 활성화
-  endBtn.disabled = false;
-  endBtn.classList.add('active');
-  document.querySelector('.end-warning').textContent = '회의를 종료하려면 클릭하세요';
-
-  // 상태 변경
-  const micHeader = document.querySelector('.mic-status-header');
-  micHeader.classList.remove('ready', 'paused');
-  micHeader.classList.add('recording');
-  micHeader.querySelector('.mic-status-label').textContent = '녹음 중';
-
-
-  // 타이머 시작
-  startTimer();
-
-  // 마이크 시작
-  startMicVisualizer();
-
-  // 데모 데이터 시작
-  startDemoTranscript();
-});
-
-/* ===============================
-   일시정지/재개 기능
-=================================*/
-pauseBtn.addEventListener('click', async () => {
-  isPaused = !isPaused;
-
-  if (isPaused) {
-    pauseBtn.classList.add('active');
-    pauseBtn.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-      </svg>
-      재개
-    `;
-
-    // 실제 녹음도 일시정지
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-      mediaRecorder.pause();
-    }
-
-    pauseMicVisualizer();
-    showSuccessMessage('녹음이 일시정지되었습니다.');
-
-  } else {
-    pauseBtn.classList.remove('active');
-    pauseBtn.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="6" y="4" width="4" height="16"/>
-        <rect x="14" y="4" width="4" height="16"/>
-      </svg>
-      일시정지
-    `;
-
-    // 녹음 재개
-    if (mediaRecorder && mediaRecorder.state === "paused") {
-      mediaRecorder.resume();
-    }
-
-    await resumeMicVisualizer();
-    showSuccessMessage('녹음이 다시 시작되었습니다.');
-  }
-});
-
-
-/* ===============================
-   회의 종료 -> Spring
-=================================*/
-endBtn.addEventListener('click', () => {
-  if (!isRecording) return;
-
-  openConfirmModal(
-    '회의 종료',
-    '회의를 종료하시겠습니까?<br>종료하면 회의록 페이지로 이동합니다.',
-    async () => {
-      clearInterval(timerInterval);
-
-      // 녹음 중단
-      if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-
-      const finalMeetingData = {
-        ...meetingData,
-        duration: timerSeconds,
-        endTime: new Date().toISOString(),
-        transcripts: Array.from(document.querySelectorAll('.transcript-item')).map(item => ({
-          speaker: item.querySelector('.speaker-name').textContent,
-          time: item.querySelector('.transcript-time').textContent,
-          text: item.querySelector('.transcript-text').textContent
-        }))
-      };
-
-      try {
-        // 회의 종료 API 호출
-        const meetingId = localStorage.getItem("currentMeetingId");
-        const res = await fetch(`http://localhost:8080/api/meetings/${meetingId}/finish`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(finalMeetingData)
-        });
-
-        if (!res.ok) throw new Error("회의 종료 실패");
-        const result = await res.json();
-
-        showSuccessMessage("회의가 저장되었습니다!");
-        localStorage.removeItem("currentMeeting");
-        localStorage.removeItem("currentMeetingId");
-        window.location.href = 'recordFinish.html';
-
-      } catch (err) {
-        console.error("회의 종료 중 오류:", err);
-        showErrorMessage("회의 데이터를 서버에 저장하지 못했습니다.");
-      }
-    }
-  );
-});
-
-/* ===============================
    실시간 텍스트 로그
 =================================*/
 const transcriptContent = document.getElementById('transcriptContent');
 const autoScrollCheckbox = document.getElementById('autoScroll');
 const transcriptCountEl = document.getElementById('transcriptCount');
-let transcriptCount = 3; // 초기 샘플 개수
 
 function scrollToBottom() {
-  if (autoScrollCheckbox.checked) {
+  if (autoScrollCheckbox && autoScrollCheckbox.checked) {
     transcriptContent.scrollTop = transcriptContent.scrollHeight;
   }
 }
 
 function updateTranscriptCount() {
-  transcriptCountEl.textContent = `${transcriptCount}개 발화`;
-}
-
-/* ===============================
-   실시간 발화 저장 -> Spring
-=================================*/
-
-async function addTranscript(speakerName, text) {
-    const item = document.createElement('div');
-    item.className = 'transcript-item';
-    
-    const timestamp = formatTime(timerSeconds);
-    
-    // 키워드 하이라이트 적용
-    let highlightedText = text;
-    if (meetingData && meetingData.keywords) {
-        meetingData.keywords.forEach((keyword, index) => {
-            const regex = new RegExp(`(${keyword})`, 'gi');
-            const colorClass = `keyword-highlight-${index % 6}`; // 6가지 색상 반복
-            highlightedText = highlightedText.replace(regex, `<mark class="${colorClass}">$1</mark>`);
-        });
-    }
-    
-    item.innerHTML = `
-        <div class="transcript-meta">
-            <span class="speaker-name">${speakerName}</span>
-            <span class="transcript-time">${timestamp}</span>
-        </div>
-        <div class="transcript-text">${highlightedText}</div>
-    `;
-    
-    transcriptContent.appendChild(item);
-    transcriptCount++;
-    updateTranscriptCount();
-    scrollToBottom();
-    
-    // 키워드 알림 체크
-    if (meetingData && meetingData.keywords) {
-        checkKeywords(text, timestamp, speakerName);
-    }
-
-    // 서버 전송 (선택)
-    try {
-        const meetingId = localStorage.getItem("currentMeetingId");
-        if (meetingId) {
-            await fetch(`http://localhost:8080/api/meetings/${meetingId}/transcripts`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    speaker: speakerName,
-                    text: text,
-                    timestamp: new Date().toISOString()
-                })
-            });
-        }
-    } catch (err) {
-        console.error("서버에 발화 저장 실패:", err);
-    }
+  if (transcriptCountEl) {
+    transcriptCountEl.textContent = `${sentences.length}개 발화`;
+  }
 }
 
 /* ===============================
@@ -561,12 +657,13 @@ function checkKeywords(text, timestamp, speakerName) {
 
 function showHighlightToast(keyword, text, timestamp, speakerName) {
   const container = document.getElementById('highlightToastContainer');
+  if (!container) return;
 
   const toast = document.createElement('div');
   toast.className = 'highlight-toast';
 
-  const colorIndex = meetingData.keywords.indexOf(keyword) % 6; // 색상 번호 계산
-  toast.dataset.color = colorIndex; // 색상 클래스 매칭용
+  const colorIndex = meetingData.keywords.indexOf(keyword) % 6;
+  toast.dataset.color = colorIndex;
 
   const lowerText = text.toLowerCase();
   const lowerKeyword = keyword.toLowerCase();
@@ -583,25 +680,26 @@ function showHighlightToast(keyword, text, timestamp, speakerName) {
   snippet = snippet.replace(regex, `<mark class="${colorClass}">$1</mark>`);
 
   toast.innerHTML = `
-        <div class="highlight-toast-header">
-            <div class="highlight-icon">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-                    <line x1="7" y1="7" x2="7.01" y2="7"/>
-                </svg>
-            </div>
-            <span class="highlight-toast-title">${speakerName}</span>
-            <span class="highlight-toast-time">${timestamp}</span>
-        </div>
-        <div class="highlight-toast-content">${snippet}</div>
-    `;
+    <div class="highlight-toast-header">
+      <div class="highlight-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+          <line x1="7" y1="7" x2="7.01" y2="7"/>
+        </svg>
+      </div>
+      <span class="highlight-toast-title">${speakerName}</span>
+      <span class="highlight-toast-time">${timestamp}</span>
+    </div>
+    <div class="highlight-toast-content">${snippet}</div>
+  `;
 
   container.appendChild(toast);
 
-  // 클릭 시 해당 위치로 스크롤
   toast.addEventListener('click', () => {
-    const items = transcriptContent.querySelectorAll('.transcript-item');
-    items[items.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const items = transcriptContent.querySelectorAll('.transcript-item:not(.partial)');
+    if (items.length > 0) {
+      items[items.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
     toast.classList.add('fade-out');
     setTimeout(() => toast.remove(), 300);
   });
@@ -609,31 +707,30 @@ function showHighlightToast(keyword, text, timestamp, speakerName) {
   setTimeout(() => {
     toast.classList.add('fade-out');
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  }, 5000);
 }
 
 /* ===============================
-   녹음 제어 (일시정지 / 재개 포함)
+   마이크 비주얼라이저
 =================================*/
-
 let audioContext = null;
 let analyser = null;
 let microphone = null;
-let micStream = null;
 let animationId = null;
 
 async function startMicVisualizer() {
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-    // 오디오 스트림 녹음 시작
-    recordedChunks = [];
-    mediaRecorder = new MediaRecorder(micStream);
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) recordedChunks.push(event.data);
-    };
-
-    mediaRecorder.start(); // 녹음 시작
+    if (!micStream) {
+      micStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+    }
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioContext.createAnalyser();
@@ -646,50 +743,48 @@ async function startMicVisualizer() {
     visualize();
   } catch (error) {
     console.error("마이크 접근 실패:", error);
-    const micHeader = document.querySelector(".mic-status-header");
-    if (!micHeader) return;
-    micHeader.classList.add("error");
-    const micLabel = micHeader.querySelector(".mic-status-label");
-    if (micLabel) micLabel.textContent = "마이크 오류";
+    showErrorMessage("마이크에 접근할 수 없습니다");
   }
 }
 
-/** 일시정지 */
 function pauseMicVisualizer() {
-  if (audioContext) audioContext.suspend(); // 분석만 멈춤
+  if (audioContext) audioContext.suspend();
   if (animationId) cancelAnimationFrame(animationId);
 
   const micHeader = document.querySelector('.mic-status-header');
-  micHeader.classList.remove('recording', 'ready');
-  micHeader.classList.add('paused');
-  micHeader.querySelector('.mic-status-label').textContent = '일시정지 중';
+  if (micHeader) {
+    micHeader.classList.remove('recording', 'ready');
+    micHeader.classList.add('paused');
+    const label = micHeader.querySelector('.mic-status-label');
+    if (label) label.textContent = '일시정지 중';
+  }
 }
 
-
-/** 재개 */
 async function resumeMicVisualizer() {
   if (!micStream) {
-    await startMicVisualizer(); // 새 스트림 열기
+    await startMicVisualizer();
   } else if (audioContext?.state === "suspended") {
     await audioContext.resume();
   }
 
   const micHeader = document.querySelector('.mic-status-header');
-  micHeader.classList.remove('ready', 'paused');
-  micHeader.classList.add('recording');
-  micHeader.querySelector('.mic-status-label').textContent = '녹음 중';
+  if (micHeader) {
+    micHeader.classList.remove('ready', 'paused');
+    micHeader.classList.add('recording');
+    const label = micHeader.querySelector('.mic-status-label');
+    if (label) label.textContent = '녹음 중';
+  }
 }
 
-/** 완전 종료 */
 function stopMicVisualizer() {
   if (animationId) cancelAnimationFrame(animationId);
   if (micStream) {
     micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
   }
   if (audioContext) audioContext.close();
 }
 
-/** 시각화 */
 function visualize() {
   const bars = document.querySelectorAll(".wave-bar");
   const micHeader = document.querySelector(".mic-status-header");
@@ -697,12 +792,15 @@ function visualize() {
   const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
   function update() {
-    if (isPaused) return; // 일시정지 시 업데이트 중단
+    if (isPaused) {
+      animationId = requestAnimationFrame(update);
+      return;
+    }
 
     analyser.getByteFrequencyData(dataArray);
     const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
 
-    if (micHeader && micLabel) {
+    if (micHeader && micLabel && !isPaused) {
       if (avg < 5) {
         micHeader.classList.add("no-sound");
         micHeader.classList.remove("error");
@@ -725,61 +823,215 @@ function visualize() {
   update();
 }
 
+/* ===============================
+   녹음 시작
+=================================*/
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const endBtn = document.getElementById('endBtn');
+
+startBtn.addEventListener('click', async () => {
+  if (isRecording) return;
+  
+  try {
+    isRecording = true;
+
+    // UI 전환
+    startBtn.style.display = 'none';
+    pauseBtn.style.display = 'flex';
+    endBtn.disabled = false;
+    endBtn.classList.add('active');
+    document.querySelector('.end-warning').textContent = '회의를 종료하려면 클릭하세요';
+
+    const micHeader = document.querySelector('.mic-status-header');
+    micHeader.classList.remove('ready', 'paused');
+    micHeader.classList.add('recording');
+    micHeader.querySelector('.mic-status-label').textContent = '녹음 중';
+
+    // 타이머 시작
+    startTimer();
+
+    // 마이크 시작
+    await startMicVisualizer();
+
+    // WebSocket STT 연결
+    connectSTTWebSocket("ko");
+    
+    // 기존 데이터 초기화
+    transcriptContent.innerHTML = '';
+    sentences = [];
+    updateTranscriptCount();
+    
+    // 녹음 메타데이터 초기화
+    recordingMetadata = {
+      audioFileUrl: '',
+      audioFormat: 'wav',
+      audioFileSize: null,
+      durationSeconds: 0
+    };
+
+  } catch (error) {
+    console.error('녹음 시작 실패:', error);
+    showErrorMessage('녹음을 시작할 수 없습니다');
+    isRecording = false;
+  }
+});
 
 /* ===============================
-   익명 발화자 (발화자 1, 2, 3, ...)
+   일시정지/재개
 =================================*/
-const demoSpeakers = ['발화자 1', '발화자 2', '발화자 3', '발화자 4'];
+pauseBtn.addEventListener('click', async () => {
+  isPaused = !isPaused;
 
-function getRandomSpeaker() {
-  // 실사용 시 diarization 결과에 따라 speakerId 부여
-  return demoSpeakers[Math.floor(Math.random() * demoSpeakers.length)];
-}
-
-const demoTexts = [
-  "다음 주까지 예산안을 완성해야 합니다. 각 부서별로 필요한 항목을 정리해주세요.",
-  "네, 알겠습니다. 마감일은 정확히 언제인가요?",
-  "마감일은 다음 주 금요일입니다. 예산 초과가 되지 않도록 주의해주세요.",
-  "현재 진행 중인 프로젝트와 예산 분배는 어떻게 하면 좋을까요?",
-  "우선순위를 정해서 중요한 항목부터 예산을 배정하는 게 좋을 것 같습니다.",
-  "그럼 이번 주 내로 1차 예산안을 작성하고, 다음 주 초에 검토하는 건 어떨까요?",
-  "좋습니다. 그렇게 진행하겠습니다. 마감일 전까지는 충분한 시간이 있네요.",
-  "추가로 필요한 자료가 있으면 말씀해주세요. 바로 준비하겠습니다."
-];
-
-let demoIndex = 0;
-
-function startDemoTranscript() {
-  setInterval(() => {
-    if (!isPaused) {
-      const speaker = getRandomSpeaker();
-      const text = demoTexts[demoIndex % demoTexts.length];
-      addTranscript(speaker, text);
-      demoIndex++;
+  if (isPaused) {
+    // WebSocket에 일시정지 신호 전송
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: 'pause' }));
     }
-  }, 5000); // 5초마다 새 발화 추가
-}
+
+    pauseBtn.classList.add('active');
+    pauseBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      재개
+    `;
+
+    pauseMicVisualizer();
+    showSuccessMessage('녹음이 일시정지되었습니다.');
+
+  } else {
+    // WebSocket에 재개 신호 전송
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: 'resume' }));
+    }
+    
+    pauseBtn.classList.remove('active');
+    pauseBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="6" y="4" width="4" height="16"/>
+        <rect x="14" y="4" width="4" height="16"/>
+      </svg>
+      일시정지
+    `;
+
+    await resumeMicVisualizer();
+    showSuccessMessage('녹음이 다시 시작되었습니다.');
+  }
+});
 
 /* ===============================
-   초기화
+   회의 종료 (개선 버전)
 =================================*/
-document.addEventListener('DOMContentLoaded', () => {
-  const micHeader = document.querySelector('.mic-status-header');
-  micHeader.classList.remove('recording', 'paused');
-  micHeader.classList.add('ready');
-  micHeader.querySelector('.mic-status-label').textContent = '대기 중';
-  // 회의 데이터 로드
-  loadMeetingData();
+endBtn.addEventListener('click', () => {
+  if (!isRecording) return;
 
-  // 발화 카운트 초기화
-  updateTranscriptCount();
+  openConfirmModal(
+    '회의 종료',
+    '회의를 종료하시겠습니까?<br>종료하면 회의록 페이지로 이동합니다.',
+    async () => {
+      clearInterval(timerInterval);
 
-  // 타이머는 녹음 시작 버튼을 누를 때 시작
-  // 마이크 비주얼라이저도 녹음 시작 버튼을 누를 때 시작
+      // WebSocket 종료 신호
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: "stop" }));
+        setTimeout(() => {
+          try { ws.close(); } catch(e) {}
+        }, 500);
+      }
+
+      // 마이크 정리
+      stopMicVisualizer();
+
+      // 회의 데이터 준비
+      const transcripts = sentences.map((s, index) => ({
+        speakerId: s.speaker || 'Unknown',
+        speakerName: s.speaker || 'Unknown',
+        speakerLabel: extractSpeakerLabel(s.speaker),
+        text: s.text || '',
+        startTime: s.startTs || 0,
+        endTime: s.endTs || s.startTs || 0,
+        sequenceOrder: index
+      }));
+
+      // Recording 엔티티 필드에 맞춘 녹음 데이터 준비
+      const audioFileUrl = recordingMetadata.audioFileUrl || 
+                          sessionStorage.getItem('uploaded_file_url') || 
+                          localStorage.getItem('uploadedAudioUrl') || '';
+      
+      const audioFormat = recordingMetadata.audioFormat || 
+                         sessionStorage.getItem('audio_format') || 
+                         'wav';
+      
+      const audioFileSize = recordingMetadata.audioFileSize || 
+                           (sessionStorage.getItem('audio_file_size') ? 
+                            parseInt(sessionStorage.getItem('audio_file_size')) : null);
+      
+      const durationSeconds = recordingMetadata.durationSeconds || timerSeconds;
+
+      const finalMeetingData = {
+        duration: durationSeconds,
+        endTime: new Date().toISOString(),
+        recording: {
+          audioFileUrl: audioFileUrl,
+          audioFormat: audioFormat,
+          audioFileSize: audioFileSize,
+          durationSeconds: durationSeconds
+        },
+        transcripts: transcripts
+      };
+
+      console.log('📤 서버 전송 데이터:', finalMeetingData);
+
+      try {
+        const meetingId = localStorage.getItem("currentMeetingId");
+        if (!meetingId) {
+          throw new Error("회의 ID를 찾을 수 없습니다");
+        }
+
+        console.log(`📡 회의 종료 요청 (Meeting ID: ${meetingId})`);
+
+        const res = await fetch(`http://localhost:8080/api/meetings/${meetingId}/finish`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(finalMeetingData),
+          credentials: 'include'
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error('서버 응답 에러:', errorText);
+          throw new Error(`회의 종료 실패: ${res.status}`);
+        }
+        
+        showSuccessMessage("회의가 저장되었습니다!");
+
+        // ✅ currentMeetingId는 localStorage에 유지
+        console.log(`✅ 회의 저장 완료. Meeting ID: ${meetingId}`);
+        
+        // 세션 정리 (다른 것들만 삭제)
+        localStorage.removeItem("currentMeeting");
+        localStorage.removeItem("uploadedAudioUrl");
+        sessionStorage.removeItem("uploaded_file_url");
+        sessionStorage.removeItem("audio_format");
+        sessionStorage.removeItem("audio_file_size");
+        
+        // ✅ URL 파라미터로도 meetingId 전달 (이중 안전장치)
+        setTimeout(() => {
+          window.location.href = `recordFinish.html?meetingId=${meetingId}`;
+        }, 1000);
+
+      } catch (err) {
+        console.error("❌ 회의 종료 중 오류:", err);
+        showErrorMessage("회의 데이터를 서버에 저장하지 못했습니다: " + err.message);
+      }
+    }
+  );
 });
 
-// 페이지 나갈 때 리소스 정리
-window.addEventListener('beforeunload', () => {
-  stopMicVisualizer();
-  clearInterval(timerInterval);
-});
+// ✅ 발화자 ID에서 숫자 추출하는 헬퍼 함수
+function extractSpeakerLabel(speakerId) {
+  if (!speakerId) return 0;
+  const match = speakerId.match(/\d+/);
+  return match ? parseInt(match[0]) : 0;
+}

@@ -1,39 +1,121 @@
 /* ===============================
-    Chatbot & Sidebar Fetch
+   전역 변수 (발화자 분석 추가)
 =================================*/
+let speakerAnalysisToken = null;
+let speakerAnalysisCheckInterval = null;
 
-if (typeof loadCurrentUser === 'function') {
-  console.log('recordFinish.js: app.js의 loadCurrentUser()를 호출합니다.');
-  loadCurrentUser();
-} else {
-  console.error('recordFinish.js: app.js의 loadCurrentUser() 함수를 찾을 수 없습니다.');
+/* ===============================
+   Chatbot & Sidebar Fetch
+=================================*/
+document.addEventListener("DOMContentLoaded", async () => {
+  const user = await loadCurrentUser();
 
-  document.querySelectorAll(".user-avatar").forEach(el => { el.textContent = "U"; });
-  document.querySelectorAll(".user-name").forEach(el => { el.textContent = "사용자"; });
-  document.querySelectorAll(".user-email").forEach(el => { el.textContent = ""; });
-};
+  let userSettings = {};
+  try {
+    userSettings = user || {};
+    if (userSettings && userSettings.name) {
+      currentUserName = userSettings.name;
+      console.log(`로그인한 사용자: ${currentUserName}`);
+    } else {
+      console.warn("로그인한 사용자 이름을 찾을 수 없습니다. (userSettings)");
+      currentUserName = "사용자";
+    }
+  } catch (e) {
+    console.error("userSettings 로드 실패", e);
+    currentUserName = "사용자";
+    userSettings = { name: "사용자" };
+  }
+
+  // 챗봇 로드
+  fetch("components/chatbot.html")
+    .then(res => res.text())
+    .then(html => {
+      const container = document.getElementById("chatbot-container");
+      container.innerHTML = html;
+
+      const closeBtn = container.querySelector(".close-chat-btn");
+      const sendBtn = container.querySelector(".send-btn");
+      const chatInput = container.querySelector("#chatInput");
+      const floatingBtn = document.getElementById("floatingChatBtn");
+
+      if (closeBtn) closeBtn.addEventListener("click", closeChat);
+      if (sendBtn) sendBtn.addEventListener("click", sendMessage);
+      if (chatInput) chatInput.addEventListener("keypress", handleChatEnter);
+      if (floatingBtn) floatingBtn.addEventListener("click", openChat);
+    });
+
+  // 사이드바 로드
+  fetch("components/sidebar.html")
+    .then(res => res.text())
+    .then(html => {
+      const sidebar = document.getElementById("sidebar-container");
+      sidebar.innerHTML = html;
+
+      const currentPage = window.location.pathname.split("/").pop();
+      const navItems = sidebar.querySelectorAll(".nav-menu a");
+
+      navItems.forEach(item => {
+        const linkPath = item.getAttribute("href");
+        if (linkPath === currentPage) {
+          item.classList.add("active");
+        } else {
+          item.classList.remove("active");
+        }
+      });
+
+      if (typeof loadCurrentUser === 'function') {
+        console.log('recordFinish.js: app.js의 loadCurrentUser()를 호출합니다.');
+        loadCurrentUser();
+      } else {
+        console.error('recordFinish.js: app.js의 loadCurrentUser() 함수를 찾을 수 없습니다.');
+
+        document.querySelectorAll(".user-avatar").forEach(el => { el.textContent = "U"; });
+        document.querySelectorAll(".user-name").forEach(el => { el.textContent = "사용자"; });
+        document.querySelectorAll(".user-email").forEach(el => { el.textContent = ""; });
+      }
+    });
+
+  // ✅ 서버에서 회의 데이터 로드
+  await loadMeetingDataFromServer();
+  
+  // ✅ sessionStorage에서 발화자 분석 토큰 확인 (recordPage에서 전달된 경우)
+  const savedToken = sessionStorage.getItem("speakerAnalysisToken");
+  if (savedToken) {
+      console.log("🎤 저장된 발화자 분석 토큰 발견:", savedToken);
+      speakerAnalysisToken = savedToken;
+      sessionStorage.removeItem("speakerAnalysisToken");
+      startCheckingSpeakerAnalysisResult();
+  } 
+  // ❌ 자동 발화자 분석 시작 제거 - 버튼으로만 실행
+  
+  // ✅ 발화자 분석 상태 체크 및 UI 업데이트
+  checkSpeakerAnalysisStatus();
+  checkMappingCompletion();
+});
 
 function openConfirmModal(title, message, onConfirm) {
-    const modal = document.getElementById('confirmModal');
-    const titleEl = document.getElementById('confirmTitle');
-    const msgEl = document.getElementById('confirmMessage');
-    const okBtn = document.getElementById('confirmOkBtn');
-    const cancelBtn = document.getElementById('confirmCancelBtn');
+  const modal = document.getElementById('confirmModal');
+  const titleEl = document.getElementById('confirmTitle');
+  const msgEl = document.getElementById('confirmMessage');
+  const okBtn = document.getElementById('confirmOkBtn');
+  const cancelBtn = document.getElementById('confirmCancelBtn');
 
-    titleEl.textContent = title;
-    msgEl.innerHTML = message;
+  titleEl.textContent = title;
+  msgEl.innerHTML = message;
 
-    modal.classList.remove('hidden');
+  modal.classList.remove('hidden');
 
-    const closeModal = () => modal.classList.add('hidden');
-    cancelBtn.onclick = closeModal;
-    okBtn.onclick = () => {
-        closeModal();
-        if (onConfirm) onConfirm();
-    };
+  const closeModal = () => modal.classList.add('hidden');
+  cancelBtn.onclick = closeModal;
+  okBtn.onclick = () => {
+    closeModal();
+    if (onConfirm) onConfirm();
+  };
 }
 
-/* 공통 메시지 */
+/* ===============================
+   공통 메시지 함수
+=================================*/
 function showSuccessMessage(msg) {
   const div = document.createElement("div");
   div.className = "success-toast";
@@ -68,6 +150,178 @@ function showErrorMessage(msg) {
   });
   document.body.appendChild(div);
   setTimeout(() => div.remove(), 2500);
+}
+
+/* ===============================
+   발화자 분석 함수들 (NEW)
+=================================*/
+
+// 발화자 분석 시작 함수
+async function startSpeakerAnalysis(fileUrl) {
+    if (!fileUrl) {
+        console.error("❌ 발화자 분석 시작 실패: fileUrl이 없습니다.");
+        showErrorMessage("오디오 파일 URL이 없어 발화자 분석을 시작할 수 없습니다.");
+        return;
+    }
+
+    console.log("🎤 발화자 분석 시작 요청:", fileUrl);
+    showSuccessMessage("발화자 분석을 시작합니다...");
+
+    try {
+        const response = await fetch("http://localhost:8000/api/analyze/object", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                file_url: fileUrl,
+                language: "ko",
+                speaker_min: -1,
+                speaker_max: -1
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`발화자 분석 요청 실패: ${response.status}`);
+        }
+
+        const result = await response.json();
+        speakerAnalysisToken = result.token;
+        
+        console.log("✅ 발화자 분석 토큰 받음:", speakerAnalysisToken);
+        showSuccessMessage(`발화자 분석이 시작되었습니다.`);
+
+        // 주기적으로 결과 확인 (3초마다)
+        startCheckingSpeakerAnalysisResult();
+
+    } catch (error) {
+        console.error("❌ 발화자 분석 시작 오류:", error);
+        showErrorMessage("발화자 분석 시작에 실패했습니다.");
+    }
+}
+
+// 발화자 분석 결과 주기적 확인
+function startCheckingSpeakerAnalysisResult() {
+    if (!speakerAnalysisToken) {
+        console.error("❌ 발화자 분석 토큰이 없습니다.");
+        return;
+    }
+
+    if (speakerAnalysisCheckInterval) {
+        clearInterval(speakerAnalysisCheckInterval);
+    }
+
+    let checkCount = 0;
+    const maxChecks = 60; // 최대 3분 (3초 × 60)
+
+    console.log("⏳ 발화자 분석 결과 확인 시작...");
+
+    speakerAnalysisCheckInterval = setInterval(async () => {
+        checkCount++;
+
+        if (checkCount > maxChecks) {
+            clearInterval(speakerAnalysisCheckInterval);
+            showErrorMessage("발화자 분석 시간이 초과되었습니다.");
+            return;
+        }
+
+        try {
+            const response = await fetch(`http://localhost:8000/api/analyze/${speakerAnalysisToken}`);
+            
+            if (!response.ok) {
+                throw new Error(`결과 조회 실패: ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (result.status === "COMPLETED" || result.success) {
+                clearInterval(speakerAnalysisCheckInterval);
+                console.log("✅ 발화자 분석 완료!", result);
+                
+                // meetingData에 발화자 분석 결과 저장
+                if (meetingData) {
+                    meetingData.speakerAnalysis = result;
+                    
+                    // segments를 transcripts 형식으로 변환
+                    if (result.segments && Array.isArray(result.segments)) {
+                        meetingData.transcripts = result.segments.map((seg, idx) => ({
+                            speaker: seg.speaker?.name || `화자${seg.speaker?.label || 0}`,
+                            speakerName: seg.speaker?.name || `화자${seg.speaker?.label || 0}`,
+                            speakerLabel: seg.speaker?.label,  // ✅ CLOVA label 보존
+                            time: formatTimestamp(seg.start),
+                            text: seg.text || "",
+                            startTime: seg.start,
+                            endTime: seg.end,
+                            sequenceOrder: idx,  // ✅ 순서 명시
+                            isDeleted: false
+                        }));
+                        
+                        console.log(`✅ ${meetingData.transcripts.length}개의 발화 로그 변환 완료`);
+                    }
+
+                    // 참석자 목록 업데이트
+                    if (result.speakers && Array.isArray(result.speakers)) {
+                        const speakerNames = result.speakers.map(s => s.name);
+                        // 기존 참석자 목록과 병합 (중복 제거)
+                        meetingData.participants = [...new Set([...meetingData.participants, ...speakerNames])];
+                        
+                        console.log(`✅ 참석자 목록 업데이트: ${meetingData.participants.join(', ')}`);
+                    }
+
+                    // UI 업데이트
+                    displayTranscripts();
+                    updateTranscriptStats();
+                    checkMappingCompletion();
+                    
+                    // ✅ 발화자 분석 버튼 숨기기
+                    const analysisBtn = document.getElementById('startSpeakerAnalysisBtn');
+                    if (analysisBtn) {
+                        analysisBtn.style.display = 'none';
+                    }
+                    
+                    // 서버에 저장 (필요한 경우 - 함수가 있다면)
+                    if (typeof saveMeetingDataToServer === 'function') {
+                        await saveMeetingDataToServer();
+                    }
+                }
+
+                showSuccessMessage("발화자 분석이 완료되었습니다! 🎉");
+                
+            } else if (result.status === "FAILED" || result.error) {
+                clearInterval(speakerAnalysisCheckInterval);
+                console.error("❌ 발화자 분석 실패:", result);
+                showErrorMessage("발화자 분석에 실패했습니다.");
+                
+                // ✅ 버튼 상태 복구
+                const analysisBtn = document.getElementById('startSpeakerAnalysisBtn');
+                if (analysisBtn) {
+                    analysisBtn.disabled = false;
+                    analysisBtn.classList.remove('analyzing');
+                    analysisBtn.querySelector('span').textContent = '발화자 구분 분석 시작';
+                }
+                
+                // ✅ 토큰 초기화
+                speakerAnalysisToken = null;
+                
+            } else {
+                // 아직 진행 중
+                const progress = result.progress || 0;
+                console.log(`⏳ 발화자 분석 진행 중... ${progress}%`);
+            }
+
+        } catch (error) {
+            console.error("❌ 발화자 분석 결과 확인 오류:", error);
+        }
+
+    }, 3000); // 3초마다 확인
+}
+
+// 타임스탬프 포맷팅 함수 (ms → "00:00:00")
+function formatTimestamp(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
 /* ===============================
@@ -205,8 +459,8 @@ function getSpeakerColor(speakerId) {
     if (!speakerColorMap[speakerId]) {
         const hue = (colorHUEIndex * HUE_STEP) % 360;
 
-        const saturation = 65; // 채도 (너무 쨍하지 않게)
-        const lightness = 40;  // 명도 (너무 밝지 않게 - 글씨가 흰색이므로)
+        const saturation = 65;
+        const lightness = 40;
 
         const hslToHex = (h, s, l) => {
             l /= 100;
@@ -236,35 +490,240 @@ let originalSummaryData = {};
 let currentMappingSpeaker = null;
 let currentUserName = null;
 
-/* 회의 데이터 로드 */
-function loadMeetingData() {
-    if (!meetingData) return;
-    
-    actionItems = meetingData.actions || [];
-    displayMeetingInfo();
-    displayTranscripts();
-    
-    // purpose, agenda, summary, importance가 있으면 표시
-    if (meetingData.purpose && meetingData.agenda && meetingData.summary) {
-        displayAISummary();
-    } else {
-        // 기본값 표시
-        document.getElementById("purposeView").textContent = "AI 요약 생성 버튼을 눌러 AI 요약을 생성하세요.";
-        document.getElementById("agendaView").textContent = "AI 요약 생성 버튼을 눌러 AI 요약을 생성하세요.";
-        document.getElementById("summaryView").textContent = "AI 요약 생성 버튼을 눌러 AI 요약을 생성하세요.";
+/* ===============================
+   회의 ID 가져오기 개선 버전
+=================================*/
 
-        const importanceEl = document.getElementById("importanceBlock");
-        if (importanceEl) importanceEl.classList.add("hidden");
-
-        // 키워드는 항상 표시!
-        renderKeywords();
+/**
+ * 회의 ID를 가져오는 함수
+ * 1. URL 쿼리 파라미터에서 확인 (우선순위 높음)
+ * 2. localStorage에서 확인
+ * 3. 둘 다 없으면 null 반환
+ */
+function getMeetingId() {
+    // 1. URL에서 meetingId 파라미터 확인
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlMeetingId = urlParams.get('meetingId');
+    
+    if (urlMeetingId) {
+        console.log('✅ URL에서 회의 ID 발견:', urlMeetingId);
+        // URL에서 찾았으면 localStorage에도 저장 (다음에도 사용 가능하도록)
+        localStorage.setItem('currentMeetingId', urlMeetingId);
+        return urlMeetingId;
     }
     
-    renderActionItems();
+    // 2. localStorage에서 확인
+    const storedMeetingId = localStorage.getItem('currentMeetingId');
+    if (storedMeetingId) {
+        console.log('✅ localStorage에서 회의 ID 발견:', storedMeetingId);
+        return storedMeetingId;
+    }
+    
+    // 3. 둘 다 없음
+    console.error('❌ 회의 ID를 찾을 수 없습니다');
+    return null;
+}
+
+/* ===============================
+   서버에서 회의 데이터 로드 (개선 버전)
+=================================*/
+async function loadMeetingDataFromServer() {
+    try {
+        const meetingId = getMeetingId();
+        
+        if (!meetingId) {
+            console.error('회의 ID를 찾을 수 없습니다');
+            
+            // 사용자에게 친절한 안내 메시지
+            showErrorModal(
+                '회의 정보 없음',
+                '회의 데이터를 불러올 수 없습니다.<br>' +
+                '회의를 먼저 생성하거나 진행해주세요.',
+                () => {
+                    window.location.href = 'new-meeting.html'; // 회의 생성 페이지로 이동
+                }
+            );
+            return;
+        }
+
+        console.log(`📥 회의 데이터 로드 시작 (ID: ${meetingId})`);
+
+        const response = await fetch(`http://localhost:8080/api/meetings/${meetingId}`, {
+            credentials: 'include'
+        });
+
+        if (response.status === 404) {
+            throw new Error('해당 회의를 찾을 수 없습니다. 삭제되었거나 존재하지 않는 회의입니다.');
+        }
+
+        if (response.status === 401) {
+            showErrorMessage('로그인이 필요합니다');
+            setTimeout(() => {
+                window.location.href = 'login.html';
+            }, 1500);
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(`서버 응답 오류: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // 서버 데이터를 meetingData 형식으로 변환
+        meetingData = {
+            meetingId: data.meetingId,
+            title: data.title || "회의록",
+            date: data.scheduledAt || new Date().toISOString(),
+            duration: 0,
+            participants: data.participants || [],
+            transcripts: [],
+            actions: [],
+            keywords: (data.keywords || []).map(k => ({ text: k, source: 'user' })),
+            audioFileUrl: null  // Recording에서 로드될 예정
+        };
+
+        // Transcript 데이터 로드
+        await loadTranscripts(meetingId);
+        
+        // Recording 데이터 로드
+        await loadRecording(meetingId);
+
+        console.log('✅ 회의 데이터 로드 완료:', meetingData);
+        
+        // UI 업데이트
+        displayMeetingInfo();
+        displayTranscripts();
+        renderKeywords();
+        renderActionItems();
+        updateTranscriptStats();
+        
+    } catch (error) {
+        console.error('❌ 회의 데이터 로드 실패:', error);
+        showErrorModal(
+            '데이터 로드 실패',
+            `회의 데이터를 불러오는데 실패했습니다.<br>${error.message}`,
+            () => {
+                window.location.href = 'dashboard.html'; // 대시보드로 이동
+            }
+        );
+    }
+}
+
+/**
+ * 에러 모달 표시 함수
+ */
+function showErrorModal(title, message, onConfirm) {
+    const modal = document.getElementById('confirmModal');
+    if (!modal) {
+        // 모달이 없으면 alert 사용
+        alert(`${title}\n\n${message}`);
+        if (onConfirm) onConfirm();
+        return;
+    }
+    
+    const titleEl = document.getElementById('confirmTitle');
+    const msgEl = document.getElementById('confirmMessage');
+    const okBtn = document.getElementById('confirmOkBtn');
+    const cancelBtn = document.getElementById('confirmCancelBtn');
+
+    titleEl.textContent = title;
+    msgEl.innerHTML = message;
+    
+    // 취소 버튼 숨기기 (에러 모달은 확인만 있으면 됨)
+    if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+    }
+
+    modal.classList.remove('hidden');
+
+    const closeModal = () => {
+        modal.classList.add('hidden');
+        if (cancelBtn) cancelBtn.style.display = '';
+    };
+    
+    okBtn.onclick = () => {
+        closeModal();
+        if (onConfirm) onConfirm();
+    };
+}
+
+
+/* Transcript 데이터 로드 */
+async function loadTranscripts(meetingId) {
+    try {
+        const response = await fetch(`http://localhost:8080/api/transcripts/meeting/${meetingId}`, {
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const transcripts = await response.json();
+            
+            // Transcript 데이터 변환
+            meetingData.transcripts = transcripts.map(t => ({
+                speaker: t.speakerId || t.speakerName || 'Unknown',
+                speakerName: t.speakerName,
+                time: t.timeLabel || formatTimeFromMs(t.startTime),
+                text: t.text || '',
+                startTime: t.startTime,
+                endTime: t.endTime,
+                isDeleted: t.isDeleted || false
+            }));
+
+            console.log(`✅ Transcript ${transcripts.length}개 로드 완료`);
+        } else {
+            console.warn('Transcript 데이터가 없습니다');
+            meetingData.transcripts = [];
+        }
+    } catch (error) {
+        console.error('Transcript 로드 실패:', error);
+        meetingData.transcripts = [];
+    }
+}
+
+/* Recording 데이터 로드 */
+async function loadRecording(meetingId) {
+    try {
+        const response = await fetch(`http://localhost:8080/api/recordings/meeting/${meetingId}`, {
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const recording = await response.json();
+            meetingData.duration = recording.durationSeconds || 0;
+            meetingData.audioFileUrl = recording.audioFileUrl;
+            meetingData.audioFormat = recording.audioFormat;
+            meetingData.audioFileSize = recording.audioFileSize;
+            
+            console.log('✅ Recording 데이터 로드 완료');
+            console.log('   - 오디오 URL:', meetingData.audioFileUrl);
+        } else {
+            console.warn('Recording 데이터가 없습니다');
+        }
+    } catch (error) {
+        console.error('Recording 로드 실패:', error);
+    }
+}
+
+/* 밀리초를 시간 문자열로 변환 */
+function formatTimeFromMs(ms) {
+    if (!ms) return "00:00";
+    const seconds = Math.floor(ms / 1000);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    
+    if (h > 0) {
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    } else {
+        return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
 }
 
 /* 회의 정보 표시 */
 function displayMeetingInfo() {
+  if (!meetingData) return;
+
   const title = meetingData.title || "제목 없음";
   document.getElementById("meetingTitle").textContent = title;
 
@@ -300,11 +759,10 @@ function editMeetingTitle() {
   const input = document.getElementById("newTitleInput");
   const currentTitle = document.getElementById("meetingTitle").textContent;
 
-  input.value = currentTitle; // 현재 제목을 입력창에 미리 채워넣기
+  input.value = currentTitle;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 
-  // 입력창에 포커스 및 엔터키 이벤트 추가
   setTimeout(() => {
     input.focus();
     input.onkeypress = function(e) {
@@ -315,14 +773,12 @@ function editMeetingTitle() {
   }, 100);
 }
 
-/* 제목 수정 모달 닫기 */
 function closeTitleModal() {
   const modal = document.getElementById("titleModal");
   modal.classList.add("hidden");
   document.body.style.overflow = "";
 }
 
-/* 제목 저장 */
 function saveNewTitle() {
   const input = document.getElementById("newTitleInput");
   const newTitle = input.value.trim();
@@ -353,13 +809,22 @@ function displayTranscripts() {
   const body = document.getElementById("transcriptList");
   body.innerHTML = "";
 
+  if (meetingData.transcripts.length === 0) {
+    body.innerHTML = `
+      <div style="text-align: center; padding: 40px; color: #9ca3af;">
+        <p>회의 녹취록이 없습니다.</p>
+      </div>
+    `;
+    return;
+  }
+
   meetingData.transcripts.forEach((transcript, index) => {
     const item = document.createElement("div");
     item.className = "transcript-item";
     item.setAttribute("data-index", index);
 
     const speakerClass = speakerMappingData[transcript.speaker] ? "mapped" : "";
-    const displayName = speakerMappingData[transcript.speaker] || transcript.speaker;
+    const displayName = speakerMappingData[transcript.speaker] || transcript.speakerName || transcript.speaker;
     const avatarText = displayName.charAt(0).toUpperCase();
 
     const speakerColor = getSpeakerColor(transcript.speaker);
@@ -444,167 +909,14 @@ function updateTranscriptStats() {
   if (mappingEl) mappingEl.textContent = `${mappedCount}/${uniqueSpeakers.length} 매핑 완료`;
 }
 
-/**
- * AI 요약 생성 (버튼 클릭 시)
- * 1. 직무 정보 확인 (None/null 체크)
- * 2. generateAISummary 함수 호출
- */
-function startFullSummaryGeneration() {
-  // 1. localStorage에서 직무 정보 가져오기
-    const userSettings = JSON.parse(localStorage.getItem('userSettings'));
-    const userJob = userSettings ? userSettings.job : null; // 예: "BACKEND_DEVELOPER" 또는 null
-
-    // 2. 직무가 없는(NONE) 경우 확인
-    if (!userJob || userJob === "NONE" || userJob === "") {
-        if (confirm("⚠️ 직무가 설정되지 않았습니다.\n중립적인 요약이 생성됩니다. 계속하시겠습니까?\n\n(직무 설정은 '설정' 페이지에서 할 수 있습니다.)")) {
-            // '확인' 누르면 그냥 진행
-            console.log("직무 없이 요약 생성 진행");
-        } else {
-            // '취소' 누르면 중단
-            return; 
-        }
-    }
-
-    // 3. (직무가 있거나, 없지만 '확인' 누른 경우) AI 요약 생성 실행
-    // (다음 단계에서 이 함수에 userJob을 넘겨줄 예정)
-    generateAISummary(userJob); 
-}
-
-/* ===============================
-    AI 요약 생성 (HyperCLOVA 사용)
-=================================*/
-
-async function generateAISummary(userJob) {
-    showLoadingState();
-    showLoadingMessage("🤖 AI 요약을 생성하는 중...");
-
-    const jobPersona = (!userJob || userJob === "NONE") ? "general" : userJob;
-
-    try {
-        const response = await fetch('http://localhost:3000/api/meeting/summarize', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                transcripts: meetingData.transcripts.filter(t => !t.isDeleted),
-                meetingDate: meetingData.date,
-                speakerMapping: speakerMappingData,  // ✅ 추가!
-                userJob: jobPersona // 🚨 변경: 직무 정보(페르소나) 추가
-            })
-        });
-
-        const data = await response.json();
-
-        hideLoadingMessage();
-
-        meetingData.purpose = data.summary.purpose;
-        meetingData.agenda = data.summary.agenda;
-        meetingData.summary = data.summary.overallSummary;
-        meetingData.importance = data.summary.importance;
-        
-        const userKeywords = (meetingData.keywords || []).filter(k => k.source === 'user');
-        const aiKeywords = (data.summary.keywords || []).map(k => ({ text: k, source: 'ai' }));
-        meetingData.keywords = [...userKeywords, ...aiKeywords];
-        
-        displayAISummary();
-        showSuccessMessage('AI 요약이 생성되었습니다!');
-
-    } catch (error) {
-        hideLoadingMessage();
-
-        console.error('AI 요약 생성 실패:', error);
-        showErrorMessage('AI 요약 생성에 실패했습니다.');
-        displayDefaultSummary();
-    }
-}
-
-function showLoadingState() {
-    const loadingText = '<span style="color: #9ca3af;">🤖 AI 요약 생성 중...</span>';
-
-    document.getElementById("purposeView").innerHTML = loadingText;
-    document.getElementById("agendaView").innerHTML = loadingText;
-    document.getElementById("summaryView").innerHTML = loadingText;
-
-    const importanceEl = document.getElementById("importanceBlock");
-    if (importanceEl) importanceEl.classList.add("hidden");
-
-    document.getElementById("keywords").innerHTML = loadingText;
-}
-
-function displayAISummary() {
-    const toggleBtn = document.getElementById("toggleEditBtn");
-    if (toggleBtn) toggleBtn.disabled = false;
-
-    const importanceEl = document.getElementById("importanceBlock");
-    if (importanceEl) importanceEl.classList.remove("hidden");
-
-    document.getElementById("purposeView").textContent = 
-        meetingData.purpose || "프로젝트 방향성 논의 및 세부 일정 수립";
-    document.getElementById("agendaView").textContent = 
-        meetingData.agenda || "예산 배정, 일정 조율, 역할 분담";
-    document.getElementById("summaryView").textContent = 
-        meetingData.summary || "이번 회의에서는 프로젝트의 주요 목표와 일정에 대해 논의했습니다.";
-
-    // 중요도 표시
-    if (meetingData.importance) {
-        const summaryTextDiv = document.querySelector("#importanceBlock .summary-text");
-        if (!summaryTextDiv) return;
-
-        const levelEl = document.createElement("span");
-        levelEl.id = "importanceLevel";
-
-        const reasonEl = document.createElement("div");
-        reasonEl.id = "importanceReason";
-        reasonEl.style.marginTop = "4px";
-        reasonEl.style.color = "#6b7280";
-
-        summaryTextDiv.innerHTML = "";
-        summaryTextDiv.appendChild(levelEl);
-        summaryTextDiv.appendChild(reasonEl);
-
-        const level = meetingData.importance.level || '보통';
-
-        let cleanReason = meetingData.importance.reason || "";
-        if (cleanReason.startsWith(level)) {
-            cleanReason = cleanReason.substring(level.length).trim();
-        }
-        cleanReason = cleanReason.trim(); 
-
-        // 5. 새로 만든 요소에 내용과 스타일 적용
-        levelEl.textContent = level;
-        levelEl.className = 'importance-level';
-        if (level === '높음') {
-            levelEl.classList.add('level-high');
-        } else if (level === '보통') {
-            levelEl.classList.add('level-medium');
-        } else if (level === '낮음') {
-            levelEl.classList.add('level-low');
-        } else {
-            levelEl.classList.add('level-default');
-        }
-
-        reasonEl.textContent = cleanReason; 
-
-        console.log('회의 중요도:', meetingData.importance);
-    }
-
-    // 키워드 표시
-    renderKeywords();
-}
-
-/*
-* '키워드 표시' 로직을 별도 함수로 분리
-*/
+/* 키워드 렌더링 */
 function renderKeywords() {
     const kwContainer = document.getElementById("keywords");
-    if (!kwContainer) return; 
+    if (!kwContainer) return;
 
     kwContainer.innerHTML = "";
 
     if (!meetingData || !meetingData.keywords || meetingData.keywords.length === 0) {
-        // 키워드가 없을 때 비어있는 대신 안내 문구 표시 (선택 사항)
-        // kwContainer.innerHTML = `<p style="color: #6b7280; font-size: 13px;">키워드가 없습니다.</p>`;
         return;
     }
 
@@ -618,14 +930,62 @@ function renderKeywords() {
     });
 }
 
-function displayDefaultSummary() {
-    document.getElementById("purposeView").textContent = "AI 요약을 생성할 수 없습니다.";
-    document.getElementById("agendaView").textContent = "API 설정을 확인해주세요.";
-    document.getElementById("summaryView").textContent = "HyperCLOVA API 키가 필요합니다.";
+function toggleKeyword(tag, keyword) {
+  if (activeKeyword === keyword) {
+    activeKeyword = null;
+    tag.classList.remove("active");
+  } else {
+    document.querySelectorAll(".keyword").forEach(k => k.classList.remove("active"));
+    activeKeyword = keyword;
+    tag.classList.add("active");
+  }
+  displayTranscripts();
 }
 
-/* 이하 기존 코드 동일하게 유지 (발화자 매핑, 액션 아이템 등) */
+/* 액션 아이템 렌더링 */
+function renderActionItems() {
+  const container = document.getElementById("actionItemsContainer");
+  if (!container) return;
 
+  container.innerHTML = "";
+
+  if (!actionItems || actionItems.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 20px; color: #9ca3af;">
+        <p>등록된 액션 아이템이 없습니다.</p>
+      </div>
+    `;
+    return;
+  }
+
+  actionItems.forEach((item, index) => {
+    const actionDiv = document.createElement("div");
+    actionDiv.className = "action-item";
+    actionDiv.innerHTML = `
+      <div class="action-item-content">
+        <h4>${item.title}</h4>
+        <p>담당: ${item.assignee || '미지정'}</p>
+        <p>기한: ${item.deadline || '미지정'}</p>
+      </div>
+      <button onclick="deleteAction(${index})" class="action-delete-btn">삭제</button>
+    `;
+    container.appendChild(actionDiv);
+  });
+}
+
+function deleteAction(index) {
+  openConfirmModal(
+    "액션 아이템 삭제",
+    "이 액션 아이템을 삭제하시겠습니까?",
+    () => {
+      actionItems.splice(index, 1);
+      renderActionItems();
+      showErrorMessage("액션 아이템이 삭제되었습니다.");
+    }
+  );
+}
+
+/* 발화자 매핑 */
 function openSpeakerModal(speaker) {
   currentMappingSpeaker = speaker;
   const modal = document.getElementById("speakerModal");
@@ -721,35 +1081,6 @@ function deleteParticipant(index) {
   );
 }
 
-function deleteKeyword(index) {
-  if (index < 0 || !meetingData.keywords || index >= meetingData.keywords.length) {
-    return;
-  }
-  
-  const keywordToDelete = meetingData.keywords[index].text;
-  
-  openConfirmModal(
-    "키워드 삭제",
-    `'${keywordToDelete}' 키워드를 삭제하시겠습니까?`,
-    () => {
-      meetingData.keywords.splice(index, 1);
-      renderKeywordManageList();
-    }
-  );
-}
-
-function deleteAction(index) {
-  openConfirmModal(
-    "액션 아이템 삭제",
-    "이 액션 아이템을 삭제하시겠습니까?",
-    () => {
-      actionItems.splice(index, 1);
-      renderActionItems();
-      showErrorMessage("액션 아이템이 삭제되었습니다.");
-    }
-  );
-}
-
 function selectParticipant(item, participant) {
   document.querySelectorAll(".participant-item").forEach(el => el.classList.remove("selected"));
   item.classList.add("selected");
@@ -762,874 +1093,6 @@ function closeSpeakerModal() {
   document.body.style.overflow = "";
 }
 
-function openParticipationChart() {
-  if (!meetingData || !meetingData.transcripts) {
-      showErrorMessage("회의 데이터가 없습니다.");
-      return;
-  }
-
-  const filteredTranscripts = meetingData.transcripts.filter(t => !t.isDeleted);
-
-  if (filteredTranscripts.length === 0) {
-      showErrorMessage("표시할 발화 로그가 없습니다.");
-      return;
-  }
-
-  const speakerCounts = {};
-  filteredTranscripts.forEach(t => {
-      const speaker = speakerMappingData[t.speaker] || t.speaker;
-      speakerCounts[speaker] = (speakerCounts[speaker] || 0) + 1;
-  });
-
-  const total = filteredTranscripts.length;
-  const chartData = Object.entries(speakerCounts).map(([speaker, count]) => ({
-      speaker,
-      count,
-      percentage: ((count / total) * 100).toFixed(1)
-  }));
-
-  chartData.sort((a, b) => b.count - a.count);
-
-  const container = document.getElementById("chartContainer");
-  container.innerHTML = "";
-
-  chartData.forEach(data => {
-      const barDiv = document.createElement("div");
-      barDiv.className = "chart-bar";
-      barDiv.innerHTML = `
-          <div class="chart-label">
-              <span class="chart-name">${data.speaker}</span>
-              <span class="chart-percentage">${data.percentage}% (${data.count}회)</span>
-          </div>
-          <div class="chart-bar-bg">
-              <div class="chart-bar-fill" style="width: ${data.percentage}%"></div>
-          </div>
-      `;
-      container.appendChild(barDiv);
-  });
-
-  const modal = document.getElementById("chartModal");
-  modal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-}
-
-function closeChartModal() {
-  const modal = document.getElementById("chartModal");
-  modal.classList.add("hidden");
-  document.body.style.overflow = "";
-}
-
-function toggleSummaryEdit() {
-    isEditingSummary = !isEditingSummary;
-    const editBtn = document.getElementById("editBtnText");
-    const editActions = document.getElementById("editActions");
-
-    const toggleBtn = document.getElementById("toggleEditBtn");
-
-    const sections = [
-        { view: "purposeView", editor: "purposeEditor" },
-        { view: "agendaView", editor: "agendaEditor" },
-        { view: "summaryView", editor: "summaryEditor" },
-        { view: "importanceReason", editor: "importanceEditor" }
-    ];
-
-  if (isEditingSummary) {
-      editBtn.textContent = "편집 중";
-      editActions.classList.remove("hidden");
-
-      if (toggleBtn) toggleBtn.disabled = true;
-
-      originalSummaryData = {};
-      sections.forEach(({ view, editor }) => {
-          const viewEl = document.getElementById(view);
-          const editEl = document.getElementById(editor);
-          const text = viewEl.textContent.trim();
-          originalSummaryData[view] = text;
-          editEl.value = text;
-          viewEl.classList.add("hidden");
-          editEl.classList.remove("hidden");
-      });
-  } else {
-      editBtn.textContent = "편집";
-      editActions.classList.add("hidden");
-
-      if (toggleBtn) toggleBtn.disabled = false;
-
-      sections.forEach(({ view, editor }) => {
-          const viewEl = document.getElementById(view);
-          const editEl = document.getElementById(editor);
-          viewEl.classList.remove("hidden");
-          editEl.classList.add("hidden");
-      });
-  }
-}
-
-function saveSummaryEdit() {
-  const idsToSave = [
-    { editorId: "purposeEditor", viewId: "purposeView", dataKey: "purpose" },
-    { editorId: "agendaEditor", viewId: "agendaView", dataKey: "agenda" },
-    { editorId: "summaryEditor", viewId: "summaryView", dataKey: "summary" },
-    { editorId: "importanceEditor", viewId: "importanceReason", dataKey: "importanceReason" }
-  ];
-
-  idsToSave.forEach(({ editorId, viewId, dataKey }) => {
-    const editor = document.getElementById(editorId);
-    const view = document.getElementById(viewId);
-    const newText = editor.value.trim() || "내용 없음";
-
-    view.textContent = newText;
-
-    if (dataKey === "importanceReason") {
-      if (meetingData.importance) {
-        meetingData.importance.reason = newText;
-      } else {
-        meetingData.importance = { level: "보통", reason: newText };
-      }
-    } else {
-      meetingData[dataKey] = newText;
-    }
-  });
-
-  toggleSummaryEdit();
-  showSuccessMessage("AI 요약이 저장되었습니다.");
-}
-
-function cancelSummaryEdit() {
-  ["purpose", "agenda", "summary"].forEach(id => {
-      const view = document.getElementById(`${id}View`);
-      view.textContent = originalSummaryData[`${id}View`];
-  });
-  toggleSummaryEdit();
-}
-
-function toggleKeyword(el, keyword) {
-  if (activeKeyword === keyword) {
-      activeKeyword = null;
-      el.classList.remove("active");
-  } else {
-      document.querySelectorAll(".keyword").forEach(tag => tag.classList.remove("active"));
-      el.classList.add("active");
-      activeKeyword = keyword;
-  }
-  displayTranscripts();
-}
-
-function openKeywordModal() {
-  const modal = document.getElementById("keywordModal");
-  if (!modal) return;
-
-  // 1. 모달을 엽니다.
-  modal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-
-  // 2. 현재 키워드 리스트를 모달 안에 채웁니다.
-  renderKeywordManageList();
-
-  // 3. (엔터키 지원) 입력창에 엔터키 이벤트를 연결합니다.
-  const input = document.getElementById("modalKeywordInput");
-  if (input) {
-    input.onkeypress = function(e) {
-      if (e.key === 'Enter') {
-        e.preventDefault(); // 폼 제출 방지
-        addManualKeywordFromModal();
-      }
-    };
-    // 모달이 열릴 때 입력창에 포커스
-    setTimeout(() => input.focus(), 100);
-  }
-}
-
-function closeKeywordModal() {
-  const modal = document.getElementById("keywordModal");
-  if (modal) {
-    modal.classList.add("hidden");
-  }
-  document.body.style.overflow = "";
-
-  // 🚨 중요: 모달이 닫힐 때, 변경된 키워드 목록을
-  // 메인 화면에도 다시 그려줍니다. (삭제된 항목 반영)
-  renderKeywords();
-  showSuccessMessage("키워드 변경사항이 저장되었습니다.");
-}
-
-function addManualKeywordFromModal() {
-  const input = document.getElementById("modalKeywordInput");
-  if (!input) return;
-
-  const newKeyword = input.value.trim();
-
-  // 1. 입력값이 없으면 무시
-  if (newKeyword.length === 0) {
-    showErrorMessage("추가할 키워드를 입력하세요.");
-    return;
-  }
-
-  // 2. 키워드 객체 생성 ('user' 태그)
-  const newKeywordObj = {
-    text: newKeyword,
-    source: 'user'
-  };
-
-  if (!meetingData.keywords) {
-    meetingData.keywords = [];
-  }
-
-  // 3. 중복 검사 (텍스트 기준)
-  const isDuplicate = meetingData.keywords.some(k => k.text.toLowerCase() === newKeyword.toLowerCase());
-  if (isDuplicate) {
-    showErrorMessage("이미 존재하는 키워드입니다.");
-    return;
-  }
-
-  // 4. 데이터에 추가하고 입력창 비우기
-  meetingData.keywords.push(newKeywordObj);
-  input.value = "";
-
-  // 5. 모달 안의 목록을 새로고침 (즉시 반영)
-  renderKeywordManageList(); 
-}
-
-function renderKeywordManageList() {
-  const listContainer = document.getElementById("keywordManageList");
-  if (!listContainer) return;
-
-  listContainer.innerHTML = ""; // 목록 비우기
-
-  if (!meetingData.keywords || meetingData.keywords.length === 0) {
-    listContainer.innerHTML = `<p style="color: #6b7280; text-align: center; font-size: 14px;">추가된 키워드가 없습니다.</p>`;
-    return;
-  }
-
-  meetingData.keywords.forEach((k_obj, index) => {
-    const item = document.createElement("div");
-    item.className = "keyword-manage-item";
-    
-    const sourceTag = k_obj.source === 'user' 
-      ? '<span class="keyword-source-tag user">사용자</span>'
-      : '<span class="keyword-source-tag ai">AI 생성</span>';
-
-    item.innerHTML = `
-      <div>
-        <span class="keyword-text">${k_obj.text}</span>
-        ${sourceTag}
-      </div>
-      <button class="btn-icon-small delete" onclick="deleteKeyword(${index})" title="삭제">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-        </svg>
-      </button>
-    `;
-    listContainer.appendChild(item);
-  });
-}
-
-function renderActionItems() {
-    const container = document.getElementById("actionList");
-    container.innerHTML = "";
-    
-    actionItems.forEach((a, index) => {
-        const div = document.createElement("div");
-        div.className = "action-item";
-        div.innerHTML = `
-            <div class="rfc-action-header">
-                <div class="action-title">${a.title}</div>
-                <div class="action-controls">
-                    <button class="btn-icon-small" onclick="editAction(${index})" title="수정">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                    </button>
-                    <button class="btn-icon-small delete" onclick="deleteAction(${index})" title="삭제">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-            ${a.deadline ? `<div class="action-meta">${a.deadline}</div>` : ''}
-            <div class="action-buttons">
-                <button class="calendar-btn ${a.addedToCalendar ? 'added' : ''}" onclick="toggleCalendar(${index})">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                        <line x1="16" y1="2" x2="16" y2="6"/>
-                        <line x1="8" y1="2" x2="8" y2="6"/>
-                        <line x1="3" y1="10" x2="21" y2="10"/>
-                    </svg>
-                    ${a.addedToCalendar ? '캘린더에 추가됨' : '캘린더에 추가'}
-                </button>
-            </div>
-        `;
-        container.appendChild(div);
-    });
-}
-
-function editAction(index) {
-    const action = actionItems[index];
-    document.getElementById("actionTitle").value = action.title;
-    document.getElementById("actionDeadline").value = action.deadline || "";
-    
-    // ✅ 담당자 선택 필드 숨기기
-    const assigneeField = document.querySelector('.form-group:has(#actionAssignee)');
-    if (assigneeField) assigneeField.style.display = 'none';
-    
-    const modal = document.getElementById("actionModal");
-    modal.classList.remove("hidden");
-    document.body.style.overflow = "hidden";
-    
-    const saveBtn = modal.querySelector(".btn-primary");
-    saveBtn.textContent = "수정";
-    saveBtn.onclick = () => {
-        const title = document.getElementById("actionTitle").value.trim();
-        if (!title) {
-            showErrorMessage("액션 아이템을 입력해주세요.");
-            return;
-        }
-        
-        const deadline = document.getElementById("actionDeadline").value;
-        
-        actionItems[index] = { 
-            title, 
-            assignee: currentUserName,
-            deadline,
-            addedToCalendar: action.addedToCalendar, 
-            source: action.source || 'user'
-        };
-        
-        renderActionItems();
-        closeActionModal();
-        showSuccessMessage("액션 아이템이 수정되었습니다.");
-        
-        saveBtn.textContent = "추가";
-        saveBtn.onclick = saveAction;
-    };
-}
-
-function toggleCalendar(index) {
-  actionItems[index].addedToCalendar = !actionItems[index].addedToCalendar;
-  renderActionItems();
-  if (actionItems[index].addedToCalendar) {
-      showSuccessMessage("캘린더에 추가되었습니다.");
-  } else {
-      showErrorMessage("캘린더에서 제거되었습니다.");
-  }
-}
-
-function openActionModal() {
-    const modal = document.getElementById("actionModal");
-    document.getElementById("actionTitle").value = "";
-    document.getElementById("actionDeadline").value = "";
-    
-    // ✅ 담당자 선택 필드 숨기기
-    const assigneeField = document.querySelector('.form-group:has(#actionAssignee)');
-    if (assigneeField) assigneeField.style.display = 'none';
-    
-    modal.classList.remove("hidden");
-    document.body.style.overflow = "hidden";
-}
-
-function saveAction() {
-    const title = document.getElementById("actionTitle").value.trim();
-    if (!title) {
-        showErrorMessage("액션 아이템을 입력해주세요.");
-        return;
-    }
-    
-    const deadline = document.getElementById("actionDeadline").value;
-    
-    // ✅ 담당자는 항상 현재 사용자
-    actionItems.push({ 
-        title, 
-        assignee: currentUserName, 
-        deadline, 
-        addedToCalendar: false, 
-        source: 'user'
-    });
-    
-    renderActionItems();
-    closeActionModal();
-    showSuccessMessage("액션 아이템이 추가되었습니다.");
-}
-
-function closeActionModal() {
-    const modal = document.getElementById("actionModal");
-    if (modal) {
-        modal.classList.add("hidden");
-    }
-    document.body.style.overflow = "";
-
-    // ✅ [중요] 모달이 닫힐 때, '수정' 상태였던 버튼을 '추가' 상태로 초기화
-    // (이유: '수정' 누르다 '취소' 누르면, 다음 '추가' 시 '수정'으로 동작하는 버그 방지)
-    const saveBtn = modal.querySelector(".btn-primary");
-    if (saveBtn) {
-        saveBtn.textContent = "추가";
-        saveBtn.onclick = saveAction;
-    }
-}
-
-function openAddTranscriptModal() {
-    const modal = document.getElementById("addTranscriptModal");
-    const speakerSelect = document.getElementById("newTranscriptSpeaker");
-
-    // 1. 발화자 목록 채우기 (editTranscript 로직 재활용)
-    speakerSelect.innerHTML = ""; // 기존 옵션 비우기
-    const uniqueSpeakers = [...new Set(meetingData.transcripts.map(t => t.speaker))].sort();
-
-    let speakerOptions = uniqueSpeakers.map(speaker =>
-        `<option value="${speaker}">
-          ${speakerMappingData[speaker] || speaker}
-        </option>`
-    ).join('');
-
-    // "선택하세요" 옵션을 맨 위에 추가
-    speakerSelect.innerHTML = `<option value="">발화자를 선택하세요</option>` + speakerOptions;
-
-    // 2. 입력 필드 초기화
-    document.getElementById("newTranscriptTime").value = "";
-    document.getElementById("newTranscriptText").value = "";
-
-    // 3. 모달 표시
-    modal.classList.remove("hidden");
-    document.body.style.overflow = "hidden";
-}
-
-function closeAddTranscriptModal() {
-    const modal = document.getElementById("addTranscriptModal");
-    if (modal) {
-        modal.classList.add("hidden");
-    }
-    document.body.style.overflow = "";
-}
-
-function saveNewTranscript() {
-    const speaker = document.getElementById("newTranscriptSpeaker").value;
-    const time = document.getElementById("newTranscriptTime").value.trim();
-    const text = document.getElementById("newTranscriptText").value.trim();
-
-    // 1. 유효성 검사
-    if (!speaker) {
-        showErrorMessage("발화자를 선택해주세요.");
-        return;
-    }
-    // 시간 형식 검사 (예: 00:15:30)
-    if (!time || !time.match(/^\d{2}:\d{2}:\d{2}$/)) {
-        showErrorMessage("시간을 '00:00:00' 형식으로 입력해주세요.");
-        return;
-    }
-    if (!text) {
-        showErrorMessage("발화 내용을 입력해주세요.");
-        return;
-    }
-
-    // 2. 새 발화 객체 생성
-    const newTranscript = {
-        speaker: speaker,
-        time: time,
-        text: text,
-        isDeleted: false // 기본값
-    };
-
-    // 3. 데이터에 추가
-    meetingData.transcripts.push(newTranscript);
-
-    // 4. [중요] 시간순으로 재정렬
-    meetingData.transcripts.sort((a, b) => {
-        return a.time.localeCompare(b.time);
-    });
-
-    // 5. UI 새로고침 및 모달 닫기
-    displayTranscripts();
-    checkMappingCompletion(); // 통계 업데이트
-    closeAddTranscriptModal();
-    showSuccessMessage("새 발화 로그가 추가되었습니다.");
-}
-
-function editTranscript(index) {
-  if (currentEditingTranscriptIndex !== -1) {
-      cancelTranscriptEdit(currentEditingTranscriptIndex);
-  }
-  currentEditingTranscriptIndex = index;
-
-  const item = document.querySelector(`.transcript-item[data-index="${index}"]`);
-  const textDiv = item.querySelector(".transcript-text");
-  const originalText = meetingData.transcripts[index].text;
-
-  const uniqueSpeakers = [...new Set(meetingData.transcripts.map(t => t.speaker))].sort();
-  const currentSpeaker = meetingData.transcripts[index].speaker;
-
-  let speakerOptions = uniqueSpeakers.map(speaker =>
-    `<option value="${speaker}" ${speaker === currentSpeaker ? 'selected' : ''}>
-      ${speakerMappingData[speaker] || speaker}
-    </option>`
-  ).join('');
-
-  textDiv.innerHTML = `
-      <div class="form-group" style="margin-bottom: 8px;">
-        <label class="form-label" style="font-size: 12px; font-weight: 600;">발화자 변경</label>
-        <select class="form-select" id="transcript-speaker-editor-${index}">
-          ${speakerOptions}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label" style="font-size: 12px; font-weight: 600;">내용 수정</label>
-        <textarea class="summary-editor" id="transcript-text-editor-${index}" style="width: 100%; padding: 8px; border: 2px solid #8E44AD; border-radius: 8px; font-size: 15px; line-height: 1.7; resize: vertical; min-height: 60px; margin-top: 0;">${originalText}</textarea>
-      </div>
-      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
-          <button class="btn btn-secondary" onclick="cancelTranscriptEdit(${index})">취소</button>
-          <button class="btn btn-primary" onclick="saveTranscriptEdit(${index})">저장</button>
-      </div>
-  `;
-  const editor = document.getElementById(`transcript-text-editor-${index}`);
-  editor.focus();
-}
-
-function saveTranscriptEdit(index) {
-  const speakerEditor = document.getElementById(`transcript-speaker-editor-${index}`);
-  const textEditor = document.getElementById(`transcript-text-editor-${index}`);
-
-  const newSpeaker = speakerEditor.value;
-  const newText = textEditor.value.trim();
-
-  if (!newText) {
-      showErrorMessage("내용을 입력해주세요.");
-      return;
-  }
-
-  meetingData.transcripts[index].text = newText;
-  meetingData.transcripts[index].speaker = newSpeaker;
-
-  currentEditingTranscriptIndex = -1;
-
-  displayTranscripts();
-  checkMappingCompletion();
-
-  showSuccessMessage("발화 로그가 수정되었습니다.");
-}
-
-/**
- * 발화 로그를 '삭제' 상태로 만듭니다. (isDeleted = true)
- */
-function deleteTranscript(index) {
-  if (!meetingData || !meetingData.transcripts[index]) return;
-
-  // 1. 데이터를 '삭제' 상태로 변경
-  meetingData.transcripts[index].isDeleted = true;
-
-  // 2. UI 새로고침 (가운데 줄, 복구 버튼 표시)
-  displayTranscripts();
-
-  // 3. (중요) AI 요약 생성/액션 추출은 '삭제되지 않은' 로그만 사용해야 하므로,
-  //    이 기능들은 '삭제된' 로그를 반영하여 다시 실행해야 함을 알려야 합니다.
-  //    (지금은 버튼 활성화 체크만 다시 합니다.)
-  checkMappingCompletion();
-
-  showErrorMessage("발화 로그가 삭제되었습니다. (복구 가능)");
-}
-
-/**
- * 발화 로그를 '복구'합니다. (isDeleted = false)
- */
-function undoTranscript(index) {
-  if (!meetingData || !meetingData.transcripts[index]) return;
-
-  // 1. 데이터를 '복구' 상태로 변경
-  meetingData.transcripts[index].isDeleted = false;
-
-  // 2. UI 새로고침
-  displayTranscripts();
-
-  // 3. 매핑 상태 다시 체크
-  checkMappingCompletion();
-
-  showSuccessMessage("발화 로그가 복구되었습니다.");
-}
-
-function cancelTranscriptEdit(index) {
-  currentEditingTranscriptIndex = -1;
-  displayTranscripts();
-}
-
-function toggleDropdown() {
-  const dropdown = document.getElementById("downloadDropdown");
-  dropdown.classList.toggle("show");
-}
-
-document.addEventListener("click", (e) => {
-  const dropdown = document.getElementById("downloadDropdown");
-  const btn = document.getElementById("downloadBtn");
-  if (dropdown && btn && !dropdown.contains(e.target) && !btn.contains(e.target)) {
-    dropdown.classList.remove("show");
-  }
-});
-
-function collectFinalData() {
-  const filteredTranscripts = (meetingData.transcripts || []).filter(t => !t.isDeleted);
-
-  const mappedTranscripts = filteredTranscripts.map(t => {
-    const speakerName = speakerMappingData[t.speaker] || t.speaker;
-    return {
-      ...t,
-      speaker: speakerName // 'speaker' 필드를 매핑된 이름으로 덮어쓰기
-    };
-  });
-
-  const sortedSpeakerMapping = {};
-  Object.keys(speakerMappingData)
-    .sort((a, b) => {
-      // "Speaker 1", "Speaker 2" ... "Speaker 10"을 숫자 기준으로 정렬
-      const numA = parseInt(a.replace('Speaker ', ''), 10);
-      const numB = parseInt(b.replace('Speaker ', ''), 10);
-      return numA - numB;
-    })
-    .forEach(key => {
-      sortedSpeakerMapping[key] = speakerMappingData[key];
-    });
-
-  return {
-    ...meetingData,
-    transcripts: mappedTranscripts,
-    speakerMapping: sortedSpeakerMapping,
-    actions: actionItems,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function exportJSON() {
-  const dropdown = document.getElementById("downloadDropdown");
-  if (dropdown) dropdown.classList.remove("show");
-  
-  const data = collectFinalData();
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${meetingData.title || "meeting"}.json`;
-  a.click();
-  showSuccessMessage("JSON 파일이 다운로드되었습니다.");
-}
-
-async function exportPDF() {
-    const dropdown = document.getElementById("downloadDropdown");
-    if (dropdown) dropdown.classList.remove("show");
-
-    if (typeof jspdf === 'undefined') {
-        showErrorMessage("PDF 라이브러리를 불러오는 데 실패했습니다.");
-        return;
-    }
-
-    try {
-        const fontResponse = await fetch('./static/fonts/NotoSansKR-Regular.ttf');
-        if (!fontResponse.ok) {
-            throw new Error('폰트 파일을 불러오는 데 실패했습니다.');
-        }
-        const fontBuffer = await fontResponse.arrayBuffer();
-
-        const fontData = btoa(
-            new Uint8Array(fontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-        );
-
-        const { jsPDF } = jspdf;
-        const doc = new jsPDF();
-        const data = collectFinalData();
-
-        // 한글 폰트 설정
-        doc.addFileToVFS('NotoSansKR-Regular.ttf', fontData);
-        doc.addFont('NotoSansKR-Regular.ttf', 'NotoSansKR', 'normal');
-        doc.setFont('NotoSansKR', 'normal');
-
-        const pageHeight = doc.internal.pageSize.getHeight();
-        const marginBottom = 20; // 하단 여백
-        let currentY = 20;
-
-        // --- 제목 및 메타 정보 ---
-        doc.setFontSize(20);
-        const titleText = doc.splitTextToSize(data.title || "회의록", 170);
-        doc.text(titleText, 20, currentY, { lineHeightFactor: 1.3 });
-        currentY += (titleText.length * 10 * 1.3);
-
-        doc.setFontSize(12);
-        currentY += 5;
-        doc.text(`회의 일시: ${document.getElementById("meetingDate").textContent}`, 20, currentY);
-        currentY += 7;
-        doc.text(`회의 시간: ${document.getElementById("meetingDuration").textContent}`, 20, currentY);
-        currentY += 7;
-        doc.text(`참석자: ${data.participants.join(', ')}`, 20, currentY);
-
-        // --- AI 요약 ---
-        currentY += 15;
-        doc.setFontSize(16);
-        doc.text("AI 요약", 20, currentY);
-
-        doc.setFontSize(12);
-        currentY += 10;
-        doc.text("회의 목적:", 20, currentY);
-        currentY += 7;
-        const purposeText = doc.splitTextToSize(data.purpose || "-", 170);
-        doc.text(purposeText, 20, currentY, { lineHeightFactor: 1.5 });
-        currentY += (purposeText.length * 7 * 1.5) + 5;
-
-        doc.text("주요 안건:", 20, currentY);
-        currentY += 7;
-        const agendaText = doc.splitTextToSize(data.agenda || "-", 170);
-        doc.text(agendaText, 20, currentY, { lineHeightFactor: 1.5 });
-        currentY += (agendaText.length * 7 * 1.5) + 5;
-
-        doc.text("전체 요약:", 20, currentY);
-        currentY += 7;
-        const summaryText = doc.splitTextToSize(data.summary || "-", 170);
-        doc.text(summaryText, 20, currentY, { lineHeightFactor: 1.5 });
-        currentY += (summaryText.length * 7 * 1.5) + 5;
-
-        doc.text("회의 중요도:", 20, currentY);
-        currentY += 7;
-        const importanceText = `${data.importance?.level || "보통"} - ${data.importance?.reason || "분석되지 않음"}`;
-        const importanceLines = doc.splitTextToSize(importanceText, 170);
-        doc.text(importanceLines, 20, currentY, { lineHeightFactor: 1.5 });
-        currentY += (importanceLines.length * 7 * 1.5);
-
-        // --- 하이라이트 키워드 ---
-        if (currentY + 30 > pageHeight - marginBottom) { 
-            doc.addPage();
-            currentY = 20; 
-        }
-
-        currentY += 15;
-        doc.setFontSize(16);
-        doc.text("하이라이트 키워드", 20, currentY);
-        currentY += 10;
-        
-        doc.setFontSize(12);
-        if (data.keywords && data.keywords.length > 0) {
-            const keywordText = data.keywords.map(k => k.text).join(', ');
-            const keywordLines = doc.splitTextToSize(keywordText, 170);
-            
-            doc.text(keywordLines, 20, currentY, { lineHeightFactor: 1.5 });
-            currentY += (keywordLines.length * 7 * 1.5) + 5;
-        } else {
-            doc.text("추출된 하이라이트 키워드가 없습니다.", 20, currentY);
-            currentY += 7;
-        }
-
-        // --- 액션 아이템 ---
-        if (currentY + 30 > pageHeight - marginBottom) { 
-            doc.addPage();
-            currentY = 20;
-        }
-        
-        currentY += 15; 
-        doc.setFontSize(16);
-        doc.text("액션 아이템", 20, currentY);
-        currentY += 10;
-
-        doc.setFontSize(12);
-        if (data.actions && data.actions.length > 0) {
-            data.actions.forEach((item, index) => {
-                const itemText = `${index + 1}. ${item.title} (담당: ${item.assignee || '미지정'}, 기한: ${item.deadline || '미지정'})`;
-                const splitText = doc.splitTextToSize(itemText, 170);
-
-                const itemHeight = (splitText.length * 7 * 1.5) + 5; 
-
-                if (currentY + itemHeight > pageHeight - marginBottom) {
-                    doc.addPage();
-                    currentY = 20;
-                }
-
-                doc.text(splitText, 20, currentY, { lineHeightFactor: 1.5 });
-                currentY += itemHeight;
-            });
-        } else {
-            doc.text("추가된 액션 아이템이 없습니다.", 20, currentY);
-            currentY += 7;
-        }
-
-        // --- 실시간 변환 로그 추가 ---
-        if (currentY + 30 > pageHeight - marginBottom) {
-            doc.addPage();
-            currentY = 20;
-        }
-
-        currentY += 15;
-        doc.setFontSize(16);
-        doc.text("실시간 변환 로그", 20, currentY);
-        currentY += 10;
-
-        doc.setFontSize(10);
-
-        if (data.transcripts && data.transcripts.length > 0) {
-            data.transcripts.forEach((item) => {
-                const headerText = `[${item.time}] ${item.speaker}`;
-                const contentText = item.text;
-
-                const headerLines = doc.splitTextToSize(headerText, 170);
-                const contentLines = doc.splitTextToSize(contentText, 165); 
-
-                const itemHeight = (headerLines.length * 6 * 1.5) + (contentLines.length * 6 * 1.5) + 5;
-
-                if (currentY + itemHeight > pageHeight - marginBottom) {
-                    doc.addPage();
-                    currentY = 20;
-                }
-
-                doc.setFont('NotoSansKR', 'normal'); 
-                doc.text(headerLines, 20, currentY, { lineHeightFactor: 1.5 });
-                currentY += (headerLines.length * 6 * 1.5);
-
-                doc.setFont('NotoSansKR', 'normal');
-                doc.text(contentLines, 25, currentY, { lineHeightFactor: 1.5 }); 
-                currentY += (contentLines.length * 6 * 1.5) + 5; 
-            });
-        } else {
-            doc.setFontSize(12);
-            doc.text("실시간 변환 로그가 없습니다.", 20, currentY);
-            currentY += 7;
-        }
-
-        doc.setFontSize(12);
-
-        // 파일 저장
-        doc.save(`${data.title || "meeting"}.pdf`);
-        showSuccessMessage("PDF 파일이 다운로드되었습니다.");
-
-    } catch (error) {
-        console.error("PDF 생성 중 폰트 로드 오류:", error);
-        showErrorMessage("PDF 생성 실패: 폰트 파일을 불러올 수 없습니다.");
-    }
-}
-
-function saveMeeting() {
-  const data = collectFinalData();
-  localStorage.setItem("savedMeeting", JSON.stringify(data));
-  showSuccessMessage("회의록이 저장되었습니다.");
-}
-
-/* AI 요약 버튼 활성화 체크 */
-function checkMappingCompletion() {
-    if (!meetingData || !meetingData.transcripts) return;
-
-    // 1. 전체 발화자 목록 (중복 제거)
-    const uniqueSpeakers = [...new Set(meetingData.transcripts.map(t => t.speaker))];
-    // 2. 매핑된 발화자 수
-    const mappedCount = uniqueSpeakers.filter(s => speakerMappingData[s]).length;
-
-    // 3. 발화자가 1명 이상이고, 전체 수와 매핑된 수가 같은지 확인
-    const allMapped = uniqueSpeakers.length > 0 && mappedCount === uniqueSpeakers.length;
-    const generateBtn = document.getElementById('generateSummaryBtn');
-
-    if (generateBtn) {
-        if (allMapped) {
-            generateBtn.disabled = false;
-            console.log('모든 발화자 매핑 완료. AI 요약 버튼 활성화.');
-        } else {
-            generateBtn.disabled = true;
-            console.log('아직 매핑되지 않은 발화자가 있습니다. AI 요약 버튼 비활성화.');
-        }
-    }
-}
-
-// 발화자 매핑 저장 시 버튼 활성화
 function saveSpeakerMapping() {
     closeSpeakerModal();
     displayTranscripts();
@@ -1650,202 +1113,272 @@ function saveSpeakerMapping() {
     }
     
     showSuccessMessage("발화자 매핑이 저장되었습니다.");
-
-    // ✅ [추가] AI 요약 버튼 활성화 여부 체크
     checkMappingCompletion();
 }
 
+/* ===============================
+   발화자 분석 상태 체크 및 UI 업데이트
+=================================*/
 
-// ✅ 내 할 일만 추출 (담당자 표시 제거)
-async function extractMyActions() {
-    if (!meetingData || !meetingData.transcripts) {
-        showErrorMessage("회의 데이터가 없습니다.");
+/**
+ * 발화자 분석이 필요한지 확인하고 UI 업데이트
+ */
+function checkSpeakerAnalysisStatus() {
+    if (!meetingData) return;
+
+    const needsAnalysis = meetingData.audioFileUrl && 
+                         (!meetingData.transcripts || meetingData.transcripts.length === 0);
+
+    // 발화자 분석 버튼 찾기 (없으면 생성)
+    let analysisBtn = document.getElementById('startSpeakerAnalysisBtn');
+    
+    if (needsAnalysis) {
+        // 버튼이 없으면 생성
+        if (!analysisBtn) {
+            analysisBtn = createSpeakerAnalysisButton();
+        }
+        
+        // 버튼 활성화
+        analysisBtn.disabled = false;
+        analysisBtn.style.display = 'flex';
+        
+        console.log('💡 발화자 분석이 필요합니다. 버튼을 클릭하여 시작하세요.');
+    } else if (analysisBtn) {
+        // Transcript가 있으면 버튼 숨기기
+        analysisBtn.style.display = 'none';
+        console.log('✅ 발화자 분석 완료 - 버튼 숨김');
+    }
+}
+
+/**
+ * 발화자 분석 시작 버튼 생성
+ */
+function createSpeakerAnalysisButton() {
+    // 버튼을 추가할 컨테이너 찾기
+    const transcriptHeader = document.querySelector('.transcript-header') || 
+                            document.querySelector('.transcript-section h2')?.parentElement;
+    
+    if (!transcriptHeader) {
+        console.error('❌ 발화자 분석 버튼을 추가할 위치를 찾을 수 없습니다.');
+        return null;
+    }
+
+    // 버튼 생성
+    const button = document.createElement('button');
+    button.id = 'startSpeakerAnalysisBtn';
+    button.className = 'speaker-analysis-btn';
+    button.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+        <span>발화자 구분 분석 시작</span>
+    `;
+    
+    button.onclick = handleSpeakerAnalysisButtonClick;
+    
+    // 버튼 스타일 추가
+    const style = document.createElement('style');
+    style.textContent = `
+        .speaker-analysis-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.25);
+            margin: 16px 0;
+        }
+        
+        .speaker-analysis-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.35);
+        }
+        
+        .speaker-analysis-btn:active {
+            transform: translateY(0);
+        }
+        
+        .speaker-analysis-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .speaker-analysis-btn svg {
+            flex-shrink: 0;
+        }
+        
+        .speaker-analysis-btn.analyzing {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            cursor: wait;
+        }
+        
+        .speaker-analysis-btn.analyzing span::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+    `;
+    
+    if (!document.getElementById('speaker-analysis-btn-style')) {
+        style.id = 'speaker-analysis-btn-style';
+        document.head.appendChild(style);
+    }
+    
+    // 버튼을 헤더 다음에 추가
+    transcriptHeader.insertAdjacentElement('afterend', button);
+    
+    return button;
+}
+
+/**
+ * 발화자 분석 버튼 클릭 핸들러
+ */
+async function handleSpeakerAnalysisButtonClick() {
+    const button = document.getElementById('startSpeakerAnalysisBtn');
+    
+    if (!meetingData || !meetingData.audioFileUrl) {
+        showErrorMessage('오디오 파일 정보가 없습니다.');
         return;
     }
     
-    showLoadingMessage("내 할 일을 추출하는 중...");
+    // 이미 분석 중이면 중복 실행 방지
+    if (speakerAnalysisToken) {
+        showErrorMessage('이미 발화자 분석이 진행 중입니다.');
+        return;
+    }
     
-    try {
-        const response = await fetch('http://localhost:3000/api/meeting/extract-all-actions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                transcripts: meetingData.transcripts.filter(t => !t.isDeleted),
-                speakerMapping: speakerMappingData,
-                meetingDate: meetingData.date
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`서버 오류: ${response.status}`);
+    // 확인 모달 표시
+    openConfirmModal(
+        '발화자 구분 분석',
+        '발화자 구분 분석을 시작하시겠습니까?<br><span style="color: #6b7280; font-size: 13px;">분석 시간은 녹음 길이에 따라 다르며, 수 분이 소요될 수 있습니다.</span>',
+        async () => {
+            // 버튼 상태 변경
+            button.disabled = true;
+            button.classList.add('analyzing');
+            button.querySelector('span').textContent = '분석 중';
+            
+            // 발화자 분석 시작
+            await startSpeakerAnalysis(meetingData.audioFileUrl);
         }
-        
-        const data = await response.json();
-        
-        hideLoadingMessage();
-        
-        if (data.success) {
-            // 내 것만 필터링
-            const aiMyActions = (data.actions || []).filter(action => action.assignee === currentUserName);
-            const userManualActions = (actionItems || []).filter(item => item.source === 'user');
-            actionItems = [...userManualActions, ...aiMyActions];
+    );
+}
 
-            if (aiMyActions.length > 0) {
-                showSuccessMessage(`${aiMyActions.length}개의 할 일이 추출되었습니다!`);
-            } else if (userManualActions.length > 0) {
-                showSuccessMessage("AI가 추가로 추출한 할 일은 0개입니다.");
-            } else {
-                showErrorMessage("회원님이 담당하는 액션 아이템이 없습니다.");
-            }
-            meetingData.actions = actionItems;
-            renderActionItems();
+/* AI 요약 버튼 활성화 체크 */
+function checkMappingCompletion() {
+    if (!meetingData || !meetingData.transcripts) return;
 
-            // ✅ 추출 완료 후 안내 문구 숨기기
-            const infoText = document.getElementById('actionInfoText');
-            if (infoText) {
-                infoText.style.display = 'none';
-            }
+    const uniqueSpeakers = [...new Set(meetingData.transcripts.map(t => t.speaker))];
+    const mappedCount = uniqueSpeakers.filter(s => speakerMappingData[s]).length;
+
+    const allMapped = uniqueSpeakers.length > 0 && mappedCount === uniqueSpeakers.length;
+    const generateBtn = document.getElementById('generateSummaryBtn');
+
+    if (generateBtn) {
+        if (allMapped) {
+            generateBtn.disabled = false;
+            console.log('모든 발화자 매핑 완료. AI 요약 버튼 활성화.');
         } else {
-            throw new Error(data.error);
+            generateBtn.disabled = true;
+            console.log('아직 매핑되지 않은 발화자가 있습니다. AI 요약 버튼 비활성화.');
         }
-    } catch (error) {
-        hideLoadingMessage();
-        console.error('내 할 일 추출 실패:', error);
-        showErrorMessage('할 일 추출에 실패했습니다.');
     }
 }
 
-function showLoadingMessage(msg) {
-    const div = document.createElement("div");
-    div.id = "loadingToast";
-    div.textContent = msg;
-    Object.assign(div.style, {
-        position: "fixed",
-        top: "24px",
-        right: "24px",
-        background: "#8E44AD",
-        color: "#fff",
-        padding: "12px 20px",
-        borderRadius: "8px",
-        zIndex: "9999",
-    });
-    document.body.appendChild(div);
-}
+/* ===============================
+   서버 저장 함수
+=================================*/
 
-function hideLoadingMessage() {
-    const toast = document.getElementById("loadingToast");
-    if (toast) toast.remove();
+/**
+ * 발화자 분석 완료 후 Transcript 데이터를 서버에 저장하는 함수
+ */
+async function saveMeetingDataToServer() {
+    if (!meetingData || !meetingData.transcripts || meetingData.transcripts.length === 0) {
+        console.warn('⚠️ 저장할 Transcript 데이터가 없습니다.');
+        return;
+    }
+
+    const meetingId = getMeetingId();
+    if (!meetingId) {
+        console.error('❌ Meeting ID를 찾을 수 없어 서버 저장 불가');
+        showErrorMessage('회의 ID를 찾을 수 없습니다.');
+        return;
+    }
+
+    console.log(`💾 Transcript 서버 저장 시작... (Meeting ID: ${meetingId})`);
+
+    try {
+        // Frontend transcripts를 Backend DTO 형식으로 변환
+        const transcriptDtos = meetingData.transcripts.map((transcript, index) => {
+            // speakerLabel 추출 (있으면 사용, 없으면 null)
+            const speakerLabel = transcript.speakerLabel !== undefined 
+                ? transcript.speakerLabel 
+                : null;
+
+            return {
+                speakerId: transcript.speaker,           // 화자 ID (예: "spk_0")
+                speakerName: transcript.speakerName || transcript.speaker,  // 화자 이름
+                speakerLabel: speakerLabel,              // CLOVA speaker label (정수)
+                text: transcript.text,                   // 발화 내용
+                startTime: transcript.startTime,         // 시작 시간 (ms)
+                endTime: transcript.endTime,             // 종료 시간 (ms)
+                sequenceOrder: transcript.sequenceOrder !== undefined ? transcript.sequenceOrder : index  // 발화 순서
+            };
+        });
+
+        console.log(`📤 전송할 Transcript 수: ${transcriptDtos.length}개`);
+
+        // Backend API 호출 - 일괄 저장
+        const response = await fetch(
+            `http://localhost:8080/api/transcripts/batch?meetingId=${meetingId}`,
+            {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include',  // 세션 쿠키 포함
+                body: JSON.stringify(transcriptDtos)
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(`서버 응답 오류: ${response.status}`);
+        }
+
+        const savedTranscripts = await response.json();
+        console.log(`✅ Transcript ${savedTranscripts.length}개 서버 저장 완료`);
+        
+        showSuccessMessage(`발화 로그 ${savedTranscripts.length}개가 저장되었습니다.`);
+
+        // 저장된 데이터로 meetingData 업데이트 (ID 등 추가된 정보 반영)
+        savedTranscripts.forEach((saved, index) => {
+            if (meetingData.transcripts[index]) {
+                meetingData.transcripts[index].id = saved.id;
+                meetingData.transcripts[index].createdAt = saved.createdAt;
+                meetingData.transcripts[index].updatedAt = saved.updatedAt;
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Transcript 서버 저장 실패:', error);
+        showErrorMessage('발화 로그 저장에 실패했습니다.');
+    }
 }
 
 /* 초기화 */
-document.addEventListener("DOMContentLoaded", () => {
-  let userSettings = {};
-  try {
-    userSettings = JSON.parse(localStorage.getItem('userSettings')) || {};
-
-    if (userSettings && userSettings.name) {
-      currentUserName = userSettings.name;
-      console.log(`로그인한 사용자: ${currentUserName}`);
-    } else {
-      console.warn("로그인한 사용자 이름을 찾을 수 없습니다. (userSettings)");
-      currentUserName = "사용자";
-    }
-  } catch (e) {
-    console.error("userSettings 로드 실패", e);
-    currentUserName = "사용자";
-    userSettings = { name: "사용자" };
-  }
-
-  fetch("components/chatbot.html")
-    .then(res => res.text())
-    .then(html => {
-      const container = document.getElementById("chatbot-container");
-      container.innerHTML = html;
-
-      const closeBtn = container.querySelector(".close-chat-btn");
-      const sendBtn = container.querySelector(".send-btn");
-      const chatInput = container.querySelector("#chatInput");
-      const floatingBtn = document.getElementById("floatingChatBtn");
-
-      if (closeBtn) closeBtn.addEventListener("click", closeChat);
-      if (sendBtn) sendBtn.addEventListener("click", sendMessage);
-      if (chatInput) chatInput.addEventListener("keypress", handleChatEnter);
-      if (floatingBtn) floatingBtn.addEventListener("click", openChat);
-    });
-
-  fetch("components/sidebar.html")
-    .then(res => res.text())
-    .then(html => {
-      const sidebar = document.getElementById("sidebar-container");
-      sidebar.innerHTML = html;
-
-      // 'active' 페이지 로직
-      const currentPage = window.location.pathname.split("/").pop();
-      const navItems = sidebar.querySelectorAll(".nav-menu a");
-
-      navItems.forEach(item => {
-        const linkPath = item.getAttribute("href");
-        if (linkPath === currentPage) {
-          item.classList.add("active");
-        } else {
-          item.classList.remove("active");
-        }
-      });
-
-      // app.js의 loadCurrentUser() 함수를 호출하여 프로필 정보 주입
-      if (typeof loadCurrentUser === 'function') {
-        console.log('recordFinish.js: app.js의 loadCurrentUser()를 호출합니다.');
-        loadCurrentUser();
-      } else {
-        console.error('recordFinish.js: app.js의 loadCurrentUser() 함수를 찾을 수 없습니다.');
-
-        document.querySelectorAll(".user-avatar").forEach(el => { el.textContent = "U"; });
-        document.querySelectorAll(".user-name").forEach(el => { el.textContent = "사용자"; });
-        document.querySelectorAll(".user-email").forEach(el => { el.textContent = ""; });
-      }
-    });
-
-  const stored = localStorage.getItem("lastMeeting");
-  if (stored) {
-      meetingData = JSON.parse(stored);
-      loadMeetingData();
-      checkMappingCompletion();
-  } else {
-      meetingData = {
-          "title": "신규 E-Commerce 플랫폼 킥오프 회의",
-          "date": new Date().toISOString(),
-          "duration": 3120, // 52분
-          "participants": [
-              "김민준 (PM)",
-              "이수진 (백엔드)",
-              "박현우 (프론트)",
-              "최유리 (DBA)",
-              "정태영 (보안)"
-          ],
-          "transcripts": [
-              { "speaker": "Speaker 1", "time": "00:00:15", "text": "안녕하세요, 오늘 킥오프 회의 시작하겠습니다. 먼저 프로젝트 전체 **일정**과 **주요 마일스톤**에 대해 공유 드립니다." },
-              { "speaker": "Speaker 2", "time": "00:01:30", "text": "PM님, **Spring Boot** 기반의 마이크로서비스 아키텍처(MSA)로 설계 방향은 잡혔는데, 서비스 간 **API 인증**은 어떻게 처리할 계획인가요?" },
-              { "speaker": "Speaker 3", "time": "00:02:45", "text": "프론트 입장에서는 **API 명세**가 빨리 나와야 개발 착수가 가능합니다. **Swagger** 같은 툴로 공유 주실 수 있나요?" },
-              { "speaker": "Speaker 1", "time": "00:03:50", "text": "네, 인증은 **OAuth 2.0**과 **JWT** 토큰 기반으로 가려고 합니다. 정태영 님, 이 부분 **보안 검토**가 필요합니다." },
-              { "speaker": "Speaker 5", "time": "00:04:30", "text": "알겠습니다. **JWT** 토큰의 만료 시간과 리프레시 토큰 정책을 명확히 해야 **보안 취약점**이 생기지 않습니다. 다음 주까지 가이드라인 마련해서 공유할게요." },
-              { "speaker": "Speaker 4", "time": "00:05:55", "text": "데이터베이스 측면에서는, **ERD** 초안을 공유 드렸습니다. 주문-결제-배송 간의 **데이터 정합성**이 **critical**합니다. 특히 **트랜잭션** 관리가 중요해요." },
-              { "speaker": "Speaker 2", "time": "00:07:10", "text": "맞습니다. MSA 환경이라 **분산 트랜잭션** 처리가 필요한데, **Saga 패턴**을 도입하는 건 어떨까요? 구현 복잡도가 좀 있긴 합니다." },
-              { "speaker": "Speaker 4", "time": "00:08:20", "text": "Saga 패턴 좋네요. 다만 **데이터베이스 부하**가 예상되니, **주문 테이블**은 **인덱스** 설계를 신중하게 해야 합니다. **쿼리 성능**이 중요합니다." },
-              { "speaker": "Speaker 3", "time": "00:09:40", "text": "프론트에서는 **React**와 **Next.js**를 사용해 **SSR(서버 사이드 렌더링)**을 구현할 예정입니다. 초기 로딩 속도 개선이 목표입니다." },
-              { "speaker": "Speaker 1", "time": "00:10:35", "text": "좋습니다. **일정**을 다시 정리하죠. 1차 스프린트는 2주 뒤로 잡고, 백엔드는 **API 명세** 완료, 프론트는 **UI/UX 와이어프레임** 확정을 목표로 합시다." },
-              { "speaker": "Speaker 2", "time": "00:11:50", "text": "이수진입니다. **API 명세**는 Swagger로 정리해서 이번 주 금요일까지 공유하겠습니다." },
-              { "speaker": "Speaker 4", "time": "00:12:30", "text": "DBA입니다. **ERD** 리뷰는 다음 주 월요일 오후 2시에 별도 미팅 요청드립니다. 백엔드 개발팀 필참입니다." },
-              { "speaker": "Speaker 3", "time": "00:13:10", "text": "프론트팀은 와이어프레임 확정 후 **컴포넌트** 설계에 들어가겠습니다. **디자인 시스템**이 먼저 정의되어야 합니다." },
-              { "speaker": "Speaker 5", "time": "00:14:05", "text": "보안팀에서는 다음 주까지 **OAuth 2.0** 관련 **보안 가이드**를 배포하겠습니다. 개인정보 **암호화** 정책도 포함입니다." },
-              { "speaker": "Speaker 1", "time": "00:15:00", "text": "네, 모두 수고하셨습니다. 각자 **액션 아이템** 잘 챙겨주시고, 이슈 발생 시 즉시 공유 바랍니다." }
-          ],
-
-          "actions": [],
-
-          "keywords": []
-      };
-      
-      loadMeetingData();
-      checkMappingCompletion();
-  }
-});

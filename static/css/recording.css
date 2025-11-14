@@ -486,7 +486,7 @@
     font-size: 20px;
     font-weight: bold;
     color: #111827;
-    margin-bottom: 24px;
+    margin-bottom: 18px;
 }
 
 .transcript-header h2 {
@@ -533,10 +533,9 @@
 }
 
 .transcript-item {
-    margin-bottom: 20px;
+    /* margin-bottom: 20px; */
     padding: 16px;
     background: white;
-    border: 1px solid #f3f4f6;
     display: flex;
     gap: 16px;
     border-radius: 10px;
@@ -545,7 +544,7 @@
 
 .transcript-item:hover {
     background: #f9fafb;
-    border-color: #e5e7eb;
+    /* border-color: #e5e7eb; */
 }
 
 .transcript-meta {
